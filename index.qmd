@@ -1,0 +1,39 @@
+---
+title: "Hello World"
+---
+
+This is my brand new website built to support STA 9750
+
+
+```{r}
+#| include: false
+1+1
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+if(!require("leaflet")){
+    options(repos=c(CRAN="https://cloud.r-project.org"))
+    install.packages("leaflet")
+    stopifnot(require("leaflet"))
+}
+
+baruch_longitude <- -73.993324
+baruch_latitude  <- +40.750298
+
+leaflet() |>
+  addTiles() |>
+  setView(baruch_longitude, baruch_latitude, zoom=17) |>
+  addPopups(baruch_longitude, baruch_latitude, 
+            "Let's Go Knicks!!!!")
+```
+
+
+
+
+--------------
+Last Updated: `r format(Sys.time(), "%A %m %d, %Y at %H:%M%p")`
