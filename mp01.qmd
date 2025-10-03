@@ -1,0 +1,479 @@
+---
+title: "Netflix Content Performance Metrics"
+---
+
+Dive into the data behind the world's biggest streaming platform
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+if(!require("tidyverse")) install.packages("tidyverse")
+library(readr)
+library(dplyr)
+library(DT)
+library(stringr)
+
+# TASK 1
+
+if(!dir.exists(file.path("data", "mp01"))){
+    dir.create(file.path("data", "mp01"), showWarnings=FALSE, recursive=TRUE)
+}
+
+GLOBAL_TOP_10_FILENAME <- file.path("data", "mp01", "global_top10_alltime.csv")
+
+if(!file.exists(GLOBAL_TOP_10_FILENAME)){
+    download.file("https://www.netflix.com/tudum/top10/data/all-weeks-global.tsv", 
+                  destfile=GLOBAL_TOP_10_FILENAME)
+}
+
+COUNTRY_TOP_10_FILENAME <- file.path("data", "mp01", "country_top10_alltime.csv")
+
+if(!file.exists(COUNTRY_TOP_10_FILENAME)){
+    download.file("https://www.netflix.com/tudum/top10/data/all-weeks-countries.tsv", 
+                  destfile=COUNTRY_TOP_10_FILENAME)
+}
+
+```
+
+
+```{r}
+#| include: false
+
+# TASK 2
+# TASK 3
+
+GLOBAL_TOP_10 <- read_tsv(GLOBAL_TOP_10_FILENAME)
+COUNTRY_TOP_10 <- read_tsv(
+  COUNTRY_TOP_10_FILENAME,
+  na = "N/A"
+)
+
+GLOBAL_TOP_10 <- GLOBAL_TOP_10 |>
+  mutate(season_title = if_else(season_title == "N/A", NA_character_, season_title))
+
+
+format_titles <- function(df){
+    colnames(df) <- str_replace_all(colnames(df), "_", " ") |> str_to_title()
+    df
+}
+
+
+GLOBAL_TOP_10 |> 
+    mutate(`runtime_(minutes)` = round(60 * runtime)) |>
+    select(-season_title) |>
+    format_titles() |>
+    head(n=20) |>
+    datatable(style= "bootstrap5", , 
+              options=list(searching=FALSE, 
+                           info=FALSE, 
+              initComplete = JS(
+        'function() {$("html").attr("data-bs-theme", "dark");}'
+             ))) |>
+    formatRound(c('Weekly Hours Viewed', 'Weekly Views'))
+
+
+
+
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# TASK 4
+
+#Q1
+netflix_countries = COUNTRY_TOP_10 |> 
+    summarize(distinct_countries = n_distinct(country_name))
+
+
+#Q2
+non_english_film_name = GLOBAL_TOP_10 |>
+    filter(category == "Films (Non-English)") |> slice_max(cumulative_weeks_in_top_10, n=1) |> 
+    select(show_title)
+
+non_english_film_weeks = GLOBAL_TOP_10 |>
+    filter(category == "Films (Non-English)") |> slice_max(cumulative_weeks_in_top_10, n=1) |> 
+    select(cumulative_weeks_in_top_10)
+
+
+#Q3
+longest_film_name = GLOBAL_TOP_10 |>
+    filter(cumulative_weeks_in_top_10 > 0, (category == "Films (English)" | category == "Films (Non-English)" )) |> 
+    slice_max(runtime, n=1, with_ties = FALSE) |>
+    select(show_title)
+
+longest_film_runtime = GLOBAL_TOP_10 |>
+    filter(cumulative_weeks_in_top_10 > 0, (category == "Films (English)" | category == "Films (Non-English)" )) |> 
+    slice_max(runtime, n=1, with_ties = FALSE) |>
+    mutate(runtime = round(60 * runtime)) |>
+    select(runtime)
+
+```
+
+## 
+## How many countries does Netflix operate out of?
+Netflix currently operates out of `{r} netflix_countries` countries, an amazing testament to the company's growth since their 1998 launch date. 
+
+## Which non-English-language film has spent the most cumulative weeks in the global top 10? How many weeks did it spend?
+`{r} non_english_film_name` is the non-English-language film to spend the most cumulative weeks in the global top 10, with a grand total of `{r} non_english_film_weeks` weeks spent in the list. 
+
+## What is the longest film (English or non-English) to have ever appeared in the Netflix global Top 10? How is it in minutes?
+`{r} longest_film_name` is the longest film to appear in Netflix's Global Top 10, with a runtime of `{r} longest_film_runtime` minutes.  
+
+## For each of the four categories, what program has the most total hours of global viewership?
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# TASK 4
+
+#Q4
+GLOBAL_TOP_10 |> 
+    group_by(category, show_title) |>
+    summarize(total_hours = sum(weekly_hours_viewed, na.rm=TRUE)) |>
+    slice_max(total_hours, n=1) |>
+    format_titles() |>
+    head(n=20) |>
+    datatable(style= "bootstrap5", , 
+              options=list(searching=FALSE, 
+                           info=FALSE, 
+                           lengthChange=FALSE, 
+                           paging=FALSE, 
+              initComplete = JS(
+        'function() {$("html").attr("data-bs-theme", "dark");}'
+             ))) |>
+    formatRound(c('Total Hours'))
+
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# TASK 4
+
+#Q5
+
+longest_tv_show = COUNTRY_TOP_10 |>
+    slice_max(cumulative_weeks_in_top_10, n=1) |> 
+    select(show_title)
+
+longest_tv_show_weeks = COUNTRY_TOP_10 |>
+    slice_max(cumulative_weeks_in_top_10, n=1) |> 
+    select(cumulative_weeks_in_top_10)
+
+longest_tv_show_country = COUNTRY_TOP_10 |>
+    slice_max(cumulative_weeks_in_top_10, n=1) |> 
+    select(country_name)
+
+
+#Q6
+
+weeks_min = COUNTRY_TOP_10 |>
+    group_by(country_name) |>
+    summarize(distinct_weeks = n_distinct(week)) |>
+    slice_min(distinct_weeks, n=1)
+    #select(country_name)
+
+weeks_max = COUNTRY_TOP_10 |>
+    group_by(country_name) |>
+    summarize(last_week = max(week))
+
+joined_country = inner_join(weeks_min, 
+                            weeks_max, 
+                            join_by(country_name == country_name))
+
+final_week = joined_country |>
+  mutate(week = format(as.Date(last_week), "%B %d, %Y")) 
+  #select(week)
+  
+
+weeks_min_operations = weeks_min |>
+  select(country_name)
+
+final_week_date = final_week |>
+  select(week)
+
+
+#Q7
+
+squid_game = GLOBAL_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Squid Game") |> 
+    summarize(total_view = sum(weekly_hours_viewed)) |>
+    select(show_title)
+
+squid_game_views = GLOBAL_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Squid Game") |> 
+    summarize(total_view = sum(weekly_hours_viewed)) |>
+    mutate(total_view_billion = round(total_view / 1e9), 1) |>
+    select(total_view_billion)
+
+
+#Q8
+
+red_notice = GLOBAL_TOP_10 |>
+    filter(show_title == "Red Notice", year(week) == 2021) |> 
+    mutate(new_weekly_views = weekly_hours_viewed / 1.966666) |> 
+    summarize(total_view = sum(new_weekly_views)) |>
+    mutate(total_view_million = round(total_view / 1e6), 1) |>
+    select(total_view_million)
+
+
+
+#Q9
+
+number_1_us_films = COUNTRY_TOP_10 |>
+    filter(country_iso2 == "US", weekly_rank == 1) |> 
+    group_by(show_title) |> 
+    summarize(number_1_week = min(week))
+
+below_1_us_films = COUNTRY_TOP_10 |>
+    filter(country_iso2 == "US", weekly_rank > 1) |> 
+    group_by(show_title) |> 
+    summarize(below_1_week = min(week))
+
+joined_films = inner_join(number_1_us_films, 
+                               below_1_us_films, 
+                               join_by(show_title == show_title,
+                                       number_1_week > below_1_week))
+
+joined_films_latest = joined_films |> slice_max(number_1_week, n=1)
+
+
+count_number1_film_debut = joined_films |> 
+    summarize(distinct_films = n_distinct(show_title))
+
+
+latest_number1_film_debut = joined_films_latest |> 
+    select(show_title)
+
+
+#Q10
+
+debut_week_shows = COUNTRY_TOP_10 |>
+    group_by(show_title) |> 
+    summarize(debut_week = min(week))
+
+debut_top_1_shows = COUNTRY_TOP_10 |>
+    filter(weekly_rank == 1) |> 
+    group_by(show_title, country_iso2) |> 
+    summarize(number_1_week = min(week))
+
+
+joined_films_debut = inner_join(debut_week_shows, 
+                                debut_top_1_shows, 
+                                join_by(show_title == show_title,
+                                        debut_week == number_1_week))
+
+joined_films_count = joined_films_debut |>
+    group_by(show_title) |>
+    summarize(distinct_country_code = n_distinct(country_iso2))
+
+
+most_countries_show = joined_films_count |>
+  slice_max(distinct_country_code, n = 1) |> 
+    select(show_title)
+
+most_countries_show_count = joined_films_count |>
+  slice_max(distinct_country_code, n = 1) |> 
+    select(distinct_country_code)
+
+
+```
+
+
+
+## Which TV show had the longest run in a country's Top 10? How long was this run and in what country did it occur?
+`{r} longest_tv_show` has the longest streak of any television program in a country's Top 10. It reached `{r} longest_tv_show_weeks` weeks in `{r} longest_tv_show_country`'s Top 10 list.
+
+
+## Netflix provides over 200 weeks of service history for all but one country in our data set. Which country is this and when did Netflix cease operations in that country?
+Netflix ceased operations in `{r} weeks_min_operations` on `{r} final_week_date`.
+
+
+## What is the total viewership of the TV show Squid Game? 
+`{r} squid_game` total viewership amounts to `{r} squid_game_views` billion hours watched across 3 seasons.
+
+
+## The movie Red Notice has a runtime of 1 hour and 58 minutes. Approximately how many views did it receive in 2021?
+Red Notice received `{r} red_notice` million views across the year 2021.
+
+
+## How many Films reached Number 1 in the US but did not originally debut there? What is the most recent film to pull this off?
+`{r} count_number1_film_debut` films have reached the Number 1 spot in the US Top 10 charts after not originally debuting there. The last film to pull this off was `{r} latest_number1_film_debut`.
+
+## Which TV show/season hit the Top 10 in the most countries in its debut week? In how many countries did it chart?
+`{r} most_countries_show` debuted in the Top 10 in the most countries, charting in `{r} most_countries_show_count` countries its debut week. 
+
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# PR 1
+
+stranger_things = GLOBAL_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Stranger Things") |> 
+    summarize(total_view = sum(weekly_hours_viewed)) |>
+    select(show_title)
+
+stranger_things_views = GLOBAL_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Stranger Things") |> 
+    summarize(total_view = sum(weekly_hours_viewed)) |>
+    mutate(total_view_trillion = round(total_view / 1e9), 4) |>
+    select(total_view_trillion)
+
+stranger_things_debut_week = GLOBAL_TOP_10 |>
+    filter(show_title == "Stranger Things") |> 
+    summarize(number_1_week = min(week))
+
+stranger_things_debut_week_format <- format(stranger_things_debut_week$number_1_week, "%B %Y")
+
+
+stranger_things_top_us = COUNTRY_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Stranger Things", country_iso2 == "US") |> 
+    summarize(max_top_weeks = max(cumulative_weeks_in_top_10)) |>
+    select(max_top_weeks)
+
+
+stranger_things_top_countries = COUNTRY_TOP_10 |>
+    group_by(show_title) |>
+    filter(show_title == "Stranger Things", weekly_rank == 1) |>
+    summarize(distinct_country_code = n_distinct(country_iso2)) |>
+    select(distinct_country_code)
+
+
+joined_stranger = inner_join(COUNTRY_TOP_10 |> select(show_title, country_iso2), 
+                            GLOBAL_TOP_10 |> select(show_title, weekly_rank, category), 
+                      join_by(show_title == show_title))
+
+
+final_joined_week = joined_stranger |>
+  filter(show_title != "Stranger Things", category == "TV (English)", weekly_rank == 1) |>
+    summarize(distinct_country_code = n_distinct(country_iso2)) |>
+    select(distinct_country_code)
+
+
+
+
+# PR2
+
+india_shows = COUNTRY_TOP_10 |>
+  filter(country_iso2 == "IN") |>
+  distinct(show_title)
+
+us_shows = COUNTRY_TOP_10 |>
+  filter(country_iso2 == "US") |>
+  distinct(show_title)
+
+india_no_us_shows = anti_join(india_shows |> select(show_title), 
+                              us_shows |> select(show_title), 
+                              join_by(show_title == show_title))
+
+
+count_india_no_us_shows = india_no_us_shows |>
+  summarize(distinct_show_title = n_distinct(show_title))
+
+india_shows_weeks = COUNTRY_TOP_10 |>
+  filter(country_iso2 == "IN") |>
+  distinct(show_title, cumulative_weeks_in_top_10)
+
+india_week_no_us_shows = anti_join(india_shows_weeks |> select(show_title, cumulative_weeks_in_top_10), 
+                              us_shows |> select(show_title), 
+                              join_by(show_title == show_title))
+
+
+india_top_show_weeks = india_week_no_us_shows |>
+  slice_max(cumulative_weeks_in_top_10, n = 1) |> 
+    select(cumulative_weeks_in_top_10)
+
+
+india_top_show_title = india_week_no_us_shows |>
+  slice_max(cumulative_weeks_in_top_10, n = 1) |> 
+    select(show_title)
+
+
+india_master_list = inner_join(COUNTRY_TOP_10 |> select(show_title, country_name, week), 
+                               GLOBAL_TOP_10 |> select(show_title, week, weekly_views), 
+                               join_by(show_title == show_title,
+                                       week == week)) |>
+                               filter(country_name == "India") |>
+                               mutate(year = year(week))
+
+                               
+views_per_year = india_master_list |>
+  group_by(year) |>
+  summarize(total_views = sum(weekly_views, na.rm = TRUE)) |>
+  mutate(total_view_billion = round(total_views / 1e9, 1))
+
+
+views_per_year_2023 = views_per_year |>
+  filter(year == 2023) |>
+  select(total_view_billion)
+
+views_per_year_2024 = views_per_year |>
+  filter(year == 2024) |>
+  select(total_view_billion)
+
+views_per_year_2025 = views_per_year |>
+  filter(year == 2025) |>
+  select(total_view_billion)
+
+
+
+
+# PR3
+
+award_nominated = GLOBAL_TOP_10 |>
+   filter(show_title %in% c("All Quiet on the Western Front", 
+                             "Don't Look Up", "The Power of the Dog")) |> 
+    #summarize(total_view = sum(weekly_hours_viewed))  |>
+    #mutate(total_view_million = round(total_view / 1e6, 1))
+    summarize(total_view_million = round(sum(weekly_hours_viewed) / 1e6, 1))
+
+    #select(show_title)
+
+
+
+```
+
+
+# Netflix Press Releases
+
+## Stranger Things Season 5
+Netfliix is thrilled to announce the fifth and final season of the world-renowned `{r} stranger_things`. 
+Since its debut in `{r} stranger_things_debut_week_format`, the series has amassed a staggering `{r} stranger_things_views` billion hours of viewership.
+In the United States, it has remained atop the Top 10 list for `{r} stranger_things_top_us` weeks, and it is a global sensation, reaching Number 1 in `{r} stranger_things_top_countries` countries worldwide. 
+
+
+## Success in India
+Netflix is continuing to expand in India, the world's most populated country. With `{r} count_india_no_us_shows` Hindu-language films, India has become a major hub for original content. Among them, "`{r} india_top_show_title`" stands out as the most popular, remaining in India's Top 10 list for `{r} india_top_show_weeks` weeks. Over the past three years, viewership has shown srtong growth, with `{r} views_per_year_2023` billion hours viewed in 2023, `{r} views_per_year_2024` billion in 2024, and `{r} views_per_year_2025` billion hours already logged in 2025 with more time still to go.
+
+
+
+## Academy Award-Nominated Films
+Netflix continue to captivate global audiences with its development of original films. Recent Best Picture nominees - All Quiet on the Western Front, Don't Look Up, and The Power of the Dog - together have been viewed for more than `{r} award_nominated` million hours worldwide.
+
+
+--------------
+Last Updated: `r format(Sys.time(), "%A %m %d, %Y at %H:%M%p")`
