@@ -150,32 +150,7 @@ longest_film_runtime = GLOBAL_TOP_10 |>
 `{r} longest_film_name` is the longest film to appear in Netflix's Global Top 10, with a runtime of `{r} longest_film_runtime` minutes.  
 
 
-```{r}
-#| echo: true
-#| code-fold: true
-#| code-summary: "Show/Hide Code"
-#| results: "hide"
-#| message: false
-#| warning: false
 
-# TASK 4
-#Q4
-GLOBAL_TOP_10 |> 
-    group_by(category, show_title) |>
-    summarize(total_hours = sum(weekly_hours_viewed, na.rm=TRUE)) |>
-    slice_max(total_hours, n=1) |>
-    format_titles() |>
-    head(n=20) |>
-    datatable(style= "bootstrap5", , 
-              options=list(searching=FALSE, 
-                           info=FALSE, 
-                           lengthChange=FALSE, 
-                           paging=FALSE, 
-              initComplete = JS(
-        'function() {$("html").attr("data-bs-theme", "dark");}'
-             ))) |>
-    formatRound(c('Total Hours'))
-```
 ## For each of the four categories, what program has the most total hours of global viewership?
 
 
