@@ -3,6 +3,7 @@ title: "Netflix Content Performance Metrics"
 format:
   html:
     code-fold: true
+    self-contained: true
 ---
 
 Dive into the data behind the world's biggest streaming platform
@@ -74,7 +75,7 @@ GLOBAL_TOP_10 |>
     select(-season_title) |>
     format_titles() |>
     head(n=20) |>
-    datatable(style= "bootstrap5", , 
+    datatable(style= "bootstrap5",  
               options=list(searching=FALSE, 
                            info=FALSE, 
               initComplete = JS(
