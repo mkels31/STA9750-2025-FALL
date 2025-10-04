@@ -180,7 +180,9 @@ GLOBAL_TOP_10 |>
 
 
 ```{r}
-#| echo: false
+#| echo: true
+#| code-fold: true
+#| code-summary: "Show/Hide Code"
 #| message: false
 #| warning: false
 
