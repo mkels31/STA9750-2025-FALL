@@ -1133,5 +1133,5 @@ ggplot() +
 
 
 ### Conclusion
-
+ 
 By encouraging cities to permit new housing in line with population growth, students, faculty, and local residents will be able to access affordable homes closer to campus and workplaces. For the Morgantown community, this means reduced financial stress, shorter commutes, and stronger local economies. For local government officials, it presents an opportunity to foster economic growth, support essential labor sectors, and improve the overall quality of life. Implementing these housing policies ensures that communities remain vibrant and resilient for years to come. 
