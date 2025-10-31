@@ -1,0 +1,1137 @@
+---
+title: "Mini Project #02:<br>Making Backyards Affordable for All"
+author: "Matthew Kelsall"
+format:
+  html:
+    toc: true
+    toc-title: "Jump To"
+    number-sections: false
+    theme: Yeti
+    self-contained: true
+---
+
+![](test1.jpg){width="100%" height="100%" fig-align="center"}
+
+
+## Introduction
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+if(!dir.exists(file.path("data", "mp02"))){
+    dir.create(file.path("data", "mp02"), showWarnings=FALSE, recursive=TRUE)
+}
+
+ensure_package <- function(pkg){
+    pkg <- as.character(substitute(pkg))
+    options(repos = c(CRAN = "https://cloud.r-project.org"))
+    if(!require(pkg, character.only=TRUE, quietly=TRUE)) install.packages(pkg)
+    stopifnot(require(pkg, character.only=TRUE, quietly=TRUE))
+}
+
+ensure_package(tidyverse)
+ensure_package(glue)
+ensure_package(readxl)
+ensure_package(tidycensus)
+
+get_acs_all_years <- function(variable, geography="cbsa",
+                              start_year=2009, end_year=2023){
+    fname <- glue("{variable}_{geography}_{start_year}_{end_year}.csv")
+    fname <- file.path("data", "mp02", fname)
+    
+    if(!file.exists(fname)){
+        YEARS <- seq(start_year, end_year)
+        YEARS <- YEARS[YEARS != 2020] # Drop 2020 - No survey (covid)
+        
+        ALL_DATA <- map(YEARS, function(yy){
+            tidycensus::get_acs(geography, variable, year=yy, survey="acs1") |>
+                mutate(year=yy) |>
+                select(-moe, -variable) |>
+                rename(!!variable := estimate)
+        }) |> bind_rows()
+        
+        write_csv(ALL_DATA, fname)
+    }
+    
+    read_csv(fname, show_col_types=FALSE)
+}
+
+# Household income (12 month)
+INCOME <- get_acs_all_years("B19013_001") |>
+    rename(household_income = B19013_001)
+
+# Monthly rent
+RENT <- get_acs_all_years("B25064_001") |>
+    rename(monthly_rent = B25064_001)
+
+# Total population
+POPULATION <- get_acs_all_years("B01003_001") |>
+    rename(population = B01003_001)
+
+# Total number of households
+HOUSEHOLDS <- get_acs_all_years("B11001_001") |>
+    rename(households = B11001_001)
+
+
+
+get_building_permits <- function(start_year = 2009, end_year = 2023){
+    fname <- glue("housing_units_{start_year}_{end_year}.csv")
+    fname <- file.path("data", "mp02", fname)
+    
+    if(!file.exists(fname)){
+        HISTORICAL_YEARS <- seq(start_year, 2018)
+        
+        HISTORICAL_DATA <- map(HISTORICAL_YEARS, function(yy){
+            historical_url <- glue("https://www.census.gov/construction/bps/txt/tb3u{yy}.txt")
+                
+            LINES <- readLines(historical_url)[-c(1:11)]
+
+            CBSA_LINES <- str_detect(LINES, "^[[:digit:]]")
+            CBSA <- as.integer(str_sub(LINES[CBSA_LINES], 5, 10))
+
+            PERMIT_LINES <- str_detect(str_sub(LINES, 48, 53), "[[:digit:]]")
+            PERMITS <- as.integer(str_sub(LINES[PERMIT_LINES], 48, 53))
+            
+            data_frame(CBSA = CBSA,
+                       new_housing_units_permitted = PERMITS, 
+                       year = yy)
+        }) |> bind_rows()
+        
+        CURRENT_YEARS <- seq(2019, end_year)
+        
+        CURRENT_DATA <- map(CURRENT_YEARS, function(yy){
+            current_url <- glue("https://www.census.gov/construction/bps/xls/msaannual_{yy}99.xls")
+            
+            temp <- tempfile()
+            
+            download.file(current_url, destfile = temp, mode="wb")
+            
+            fallback <- function(.f1, .f2){
+                function(...){
+                    tryCatch(.f1(...), 
+                             error=function(e) .f2(...))
+                }
+            }
+            
+            reader <- fallback(read_xlsx, read_xls)
+            
+            reader(temp, skip=5) |>
+                na.omit() |>
+                select(CBSA, Total) |>
+                mutate(year = yy) |>
+                rename(new_housing_units_permitted = Total)
+        }) |> bind_rows()
+        
+        ALL_DATA <- rbind(HISTORICAL_DATA, CURRENT_DATA)
+        
+        write_csv(ALL_DATA, fname)
+        
+    }
+    
+    read_csv(fname, show_col_types=FALSE)
+}
+
+PERMITS <- get_building_permits()
+
+
+
+ensure_package(httr2)
+ensure_package(rvest)
+get_bls_industry_codes <- function(){
+    fname <- fname <- file.path("data", "mp02", "bls_industry_codes.csv")
+    
+    if(!file.exists(fname)){
+    
+        resp <- request("https://www.bls.gov") |> 
+            req_url_path("cew", "classifications", "industry", "industry-titles.htm") |>
+            req_headers(`User-Agent` = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0") |> 
+            req_error(is_error = \(resp) FALSE) |>
+            req_perform()
+        
+        resp_check_status(resp)
+        
+        naics_table <- resp_body_html(resp) |>
+            html_element("#naics_titles") |> 
+            html_table() |>
+            mutate(title = str_trim(str_remove(str_remove(`Industry Title`, Code), "NAICS"))) |>
+            select(-`Industry Title`) |>
+            mutate(depth = if_else(nchar(Code) <= 5, nchar(Code) - 1, NA)) |>
+            filter(!is.na(depth))
+        
+        naics_table <- naics_table |> 
+            filter(depth == 4) |> 
+            rename(level4_title=title) |> 
+            mutate(level1_code = str_sub(Code, end=2), 
+                   level2_code = str_sub(Code, end=3), 
+                   level3_code = str_sub(Code, end=4)) |>
+            left_join(naics_table, join_by(level1_code == Code)) |>
+            rename(level1_title=title) |>
+            left_join(naics_table, join_by(level2_code == Code)) |>
+            rename(level2_title=title) |>
+            left_join(naics_table, join_by(level3_code == Code)) |>
+            rename(level3_title=title) |>
+            select(-starts_with("depth")) |>
+            rename(level4_code = Code) |>
+            select(level1_title, level2_title, level3_title, level4_title, 
+                   level1_code,  level2_code,  level3_code,  level4_code)
+    
+        write_csv(naics_table, fname)
+    }
+    
+    read_csv(fname, show_col_types=FALSE)
+    
+}
+
+INDUSTRY_CODES <- get_bls_industry_codes()
+
+
+
+ensure_package(httr2)
+ensure_package(rvest)
+get_bls_qcew_annual_averages <- function(start_year=2009, end_year=2023){
+    fname <- glue("bls_qcew_{start_year}_{end_year}.csv.gz")
+    fname <- file.path("data", "mp02", fname)
+    
+    if(!file.exists(fname)){
+        YEARS <- seq(start_year, end_year)
+        YEARS <- YEARS[YEARS != 2020] # Drop Covid year to match ACS
+        
+        ALL_DATA <- map(YEARS, .progress=TRUE, function(yy){
+            fname_inner <- file.path("data", "mp02", glue("{yy}_qcew_annual_singlefile.zip"))
+            
+            if(!file.exists(fname_inner)){
+                request("https://www.bls.gov") |> 
+                req_url_path("cew", "data", "files", yy, "csv",
+                             glue("{yy}_annual_singlefile.zip")) |>
+                req_headers(`User-Agent` = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:143.0) Gecko/20100101 Firefox/143.0") |> 
+                req_error(is_error = \(resp) FALSE) |>
+                req_perform(fname_inner)
+            }
+            
+            read_csv(fname_inner, 
+                     show_col_types=FALSE) |> 
+                mutate(YEAR = yy) |>
+                select(area_fips, 
+                       industry_code, 
+                       annual_avg_emplvl, 
+                       total_annual_wages, 
+                       YEAR) |>
+                filter(nchar(industry_code) <= 5, 
+                       str_starts(area_fips, "C")) |>
+                mutate(FIPS = area_fips, 
+                       INDUSTRY = as.integer(industry_code), 
+                       EMPLOYMENT = as.integer(annual_avg_emplvl), 
+                       TOTAL_WAGES = total_annual_wages) |>
+                select(-area_fips, 
+                       -industry_code, 
+                       -annual_avg_emplvl, 
+                       -total_annual_wages) |>
+                # 10 is a special value: "all industries" , so omit
+                filter(INDUSTRY != 10) |> 
+                mutate(AVG_WAGE = TOTAL_WAGES / EMPLOYMENT)
+        }) |> bind_rows()
+        
+        write_csv(ALL_DATA, fname)
+    }
+    
+    read_csv(fname, show_col_types=FALSE)
+}
+
+WAGES <- get_bls_qcew_annual_averages()
+
+```
+
+Housing affordability has become a nationwide concern in the United States and a central issue in New York City's ongoing mayoral election. Candidates are under increasing pressure to propose innovative solutions for expanding affordable housing in one of the world's most expensive cities. However, progress often collides with NIMBY ("Not In My Backyard") attitudes, where locals often stall new housing development. This project explores the dynamics and data shaping this critical issue.
+
+
+
+## Initial Analysis
+
+```{r}
+#| echo: false
+#| include: false
+
+
+
+library(dplyr)
+library(DT) 
+library(scales) 
+library(ggplot2)
+library(plotly) 
+
+
+#Q1
+PERMITS_FILTER = PERMITS |> 
+      filter(year >= 2010 & year <= 2019) |> 
+      group_by(CBSA) |>
+      summarize(total_permits = sum(new_housing_units_permitted, na.rm = TRUE))
+
+DISTINCT_GEOID = POPULATION |>
+  distinct(GEOID, NAME)
+
+
+joined_country <- inner_join(
+  PERMITS_FILTER,
+  DISTINCT_GEOID,
+  join_by(CBSA == GEOID)
+)
+
+top_region_count <- joined_country |>
+  slice_max(total_permits, n = 1, with_ties = FALSE) |>
+  mutate(total_permits = format(total_permits, big.mark = ",", scientific = FALSE)) |>
+  select(total_permits)
+
+top_region_name <- joined_country |>
+  slice_max(total_permits, n = 1, with_ties = FALSE) |>
+  select(NAME)
+
+
+#Q2
+ALBURQ_COUNT = PERMITS |> 
+      filter(CBSA == 10740) |>
+      slice_max(new_housing_units_permitted, n = 1, with_ties = FALSE) |>
+      select(new_housing_units_permitted)
+      
+ALBURQ_YEAR = PERMITS |> 
+      filter(CBSA == 10740) |>
+      slice_max(new_housing_units_permitted, n = 1, with_ties = FALSE) |>
+      select(year)
+
+
+
+#Q3
+INCOME_FILTER = INCOME |>
+      filter(year == 2015) 
+
+  
+HOUSEHOLD_FILTER = HOUSEHOLDS |>
+      filter(year == 2015)
+
+  
+POPULATION_FILTER = POPULATION |>
+      filter(year == 2015)
+ 
+
+joined_data = inner_join(
+  INCOME_FILTER,
+  HOUSEHOLD_FILTER,
+  join_by(GEOID == GEOID)) |>
+  mutate(total_income = household_income * households)
+
+
+joined_data_final = inner_join(
+  joined_data,
+  POPULATION_FILTER,
+  by = "GEOID"
+) |>
+  mutate(state = str_extract(NAME, ", (.{2})", group=1))
+
+
+state_summary  = joined_data_final |>
+  group_by(state) |>
+  summarize(
+    household_income = mean(household_income, na.rm = TRUE),  
+    households = sum(households, na.rm = TRUE),
+    total_income = sum(total_income, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(average_income = total_income / population) |>
+  slice_max(average_income, n = 1, with_ties = FALSE)
+
+state_summary_average_income = state_summary |>
+      mutate(average_income = dollar(average_income, accuracy = 1)) |>
+      select(average_income)
+
+```
+
+
+To begin, we will explore and familiarize ourselves with the data. The datasets include information from across the United States on population, household size, rent levels, income, housing permits, and other key measures. Some quick facts from the data:
+
+* Between 2010 and 2019, the `{r} top_region_name` CBSA permitted the largest number of new housing units, adding `{r} top_region_count` units over the decade.
+* In Albuquerque, NM (CBSA 10740), `{r} ALBURQ_YEAR` was the year with the most new housing permits, when `{r} ALBURQ_COUNT` units were added.
+* In 2015, the state with the highest average individual income was Washington, D.C., at `{r} state_summary_average_income`.
+
+To understand trends in the distribution of data scientists and business analysts, we focus on NAICS code 5182.
+This analysis examines where these professionals have been most commonly employed since 2009. 
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+
+library(dplyr)
+library(DT) 
+library(scales) 
+library(ggplot2)
+library(plotly) 
+
+#Q1
+PERMITS_FILTER = PERMITS |> 
+      filter(year >= 2010 & year <= 2019) |> 
+      group_by(CBSA) |>
+      summarize(total_permits = sum(new_housing_units_permitted, na.rm = TRUE))
+
+DISTINCT_GEOID = POPULATION |>
+  distinct(GEOID, NAME)
+
+
+joined_country <- inner_join(
+  PERMITS_FILTER,
+  DISTINCT_GEOID,
+  join_by(CBSA == GEOID)
+)
+
+top_region_count <- joined_country |>
+  slice_max(total_permits, n = 1, with_ties = FALSE) |>
+  mutate(total_permits = format(total_permits, big.mark = ",", scientific = FALSE)) |>
+  select(total_permits)
+
+top_region_name <- joined_country |>
+  slice_max(total_permits, n = 1, with_ties = FALSE) |>
+  select(NAME)
+
+
+#Q2
+ALBURQ_COUNT = PERMITS |> 
+      filter(CBSA == 10740) |>
+      slice_max(new_housing_units_permitted, n = 1, with_ties = FALSE) |>
+      select(new_housing_units_permitted)
+      
+ALBURQ_YEAR = PERMITS |> 
+      filter(CBSA == 10740) |>
+      slice_max(new_housing_units_permitted, n = 1, with_ties = FALSE) |>
+      select(year)
+
+
+
+#Q3
+INCOME_FILTER = INCOME |>
+      filter(year == 2015) 
+
+  
+HOUSEHOLD_FILTER = HOUSEHOLDS |>
+      filter(year == 2015)
+
+  
+POPULATION_FILTER = POPULATION |>
+      filter(year == 2015)
+ 
+
+joined_data = inner_join(
+  INCOME_FILTER,
+  HOUSEHOLD_FILTER,
+  join_by(GEOID == GEOID)) |>
+  mutate(total_income = household_income * households)
+
+
+joined_data_final = inner_join(
+  joined_data,
+  POPULATION_FILTER,
+  by = "GEOID"
+) |>
+  mutate(state = str_extract(NAME, ", (.{2})", group=1))
+
+
+state_summary  = joined_data_final |>
+  group_by(state) |>
+  summarize(
+    household_income = mean(household_income, na.rm = TRUE),  
+    households = sum(households, na.rm = TRUE),
+    total_income = sum(total_income, na.rm = TRUE),
+    population = sum(population, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(average_income = total_income / population) |>
+  slice_max(average_income, n = 1, with_ties = FALSE)
+
+state_summary_average_income = state_summary |>
+      mutate(average_income = dollar(average_income, accuracy = 1)) |>
+      select(average_income)
+  
+      
+
+#Q4
+WAGES_FILTER = WAGES |>
+      filter(INDUSTRY == 5182) 
+
+
+t1 = POPULATION |> mutate(std_cbsa = paste0("C", GEOID))
+t2 = WAGES |> mutate(std_cbsa = paste0(FIPS, "0")) |>
+  filter(INDUSTRY == 5182
+         )
+professor_table = inner_join(t1, t2, join_by(std_cbsa == std_cbsa, year == YEAR) )
+ 
+top_employment = professor_table |>
+  group_by(NAME, year) |>
+  summarize(total_employment = sum(EMPLOYMENT, na.rm = TRUE)) |>
+  group_by(year) |>
+  slice_max(total_employment, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+top_employment_state = top_employment |>
+  mutate(state = str_extract(NAME, ", (.{2})", group=1)) |>
+  select(state, year, total_employment)
+  
+
+#Q5
+
+t3 = POPULATION |> mutate(std_cbsa = paste0("C", GEOID))
+t4 = WAGES |> mutate(std_cbsa = paste0(FIPS, "0")) |>
+  filter(std_cbsa == 'C35620', INDUSTRY == 52)
+
+finance_table = inner_join(t3, t4, join_by(std_cbsa == std_cbsa, year == YEAR) ) 
+
+ 
+finance_table_summ = finance_table |>
+  group_by(NAME, year) |>
+  summarize(finance_wages = sum(TOTAL_WAGES, na.rm = TRUE))
+
+
+
+t5 = WAGES |> mutate(std_cbsa = paste0(FIPS, "0")) |>
+  filter(std_cbsa == 'C35620')
+
+nyc_table = inner_join(t3, t5, join_by(std_cbsa == std_cbsa, year == YEAR) ) 
+
+ 
+nyc_table_summ = nyc_table |>
+  group_by(NAME, year) |>
+  summarize(total_wages = sum(TOTAL_WAGES, na.rm = TRUE))
+
+
+nyc_full = inner_join(finance_table_summ, nyc_table_summ, join_by(year == year) )  |>
+  mutate(wage_fraction = (finance_wages / total_wages)*100) |>
+  select(NAME.x, year, wage_fraction)
+
+peak <- nyc_full %>% filter(year == 2014)
+
+
+
+
+datatable(
+  top_employment,
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "CBSA Name",
+    "Year",
+    "Total Employment"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+```
+
+
+The data shows that New York City led in employment for this profession until 2015, after which San Francisco became the top city for data scientists and business analysts.
+
+
+<br>
+Finally, we examine the role of the finance and insurance industries within the New York City CBSA. 
+Workers in this industry have earned roughly 4% of total wages in the region over the last 15 years. This share reached its peak at 4.6% in 2014, highlighting the industry's importance in the NYC labor market. 
+
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+ggplot(nyc_full, aes(x = year, y = wage_fraction)) +
+  geom_line(aes(group = 1), color = "#1f78b4", size = 1.2) +      
+  geom_point(color = "darkred", size = 3.5) + 
+  geom_text(data = peak,
+            aes(label = paste0(round(wage_fraction, 1), "%")),
+                vjust = -1,
+                size = 4,
+                fontface = "bold") +
+  labs(
+    title = "Finance & Insurance Wage Share in NYC CBSA",
+    x = "Year",
+    y = "Wage Fraction (%)"
+  ) +
+  scale_y_continuous(limits = c(0, max(nyc_full$wage_fraction) * 1.1)) +  
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+
+<br>
+
+## Visualizing Data
+
+
+Data visualizations transform raw data into actionable insights, making it easier to identify trends and outliers. In this section, we will use visual tools to explore the data further. 
+
+In the context of housing affordability, the relationship between monthly rent and average household income is a key indicator. The scatter plot below shows data from 2009, revealing a positive correlation between household income and monthly rent. This suggests that CBSAs with a higher cost of living tend to offer higher wages.
+
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+
+INCOME_FILTER_2009 = INCOME |>
+      filter(year == 2009) 
+
+  
+RENT_FILTER_2009 = RENT |>
+      filter(year == 2009)
+
+
+joined_data_task3 = inner_join(
+  INCOME_FILTER_2009,
+  RENT_FILTER_2009,
+  join_by(GEOID == GEOID)) |>
+  select(GEOID, NAME.x, household_income, monthly_rent)
+
+
+joined_data_task4 = inner_join(
+  POPULATION,
+  HOUSEHOLDS,
+  join_by(GEOID == GEOID, year == year))  |>
+  mutate(avg_household = (population / households)) |>
+  select(GEOID, NAME.x, year, population, households, avg_household)
+
+year_summary = joined_data_task4 |>
+  group_by(year) |>
+  summarise(
+    total_population = sum(population, na.rm = TRUE),
+    total_households = sum(households, na.rm = TRUE),
+    avg_household = total_population / total_households
+  )
+
+ggplot(joined_data_task3, aes(x = household_income, y = monthly_rent)) +
+  geom_point(alpha = 0.4, color = "#1f78b4", size = 3) +      
+  stat_smooth(se = FALSE, color = "red4", size = 1.2) +       
+  labs(
+    title = "Monthly Rent vs Household Income in 2009",
+    x = "Household Income (US Dollars)",
+    y = "Monthly Rent (US Dollars)"
+  ) +
+  scale_x_continuous(labels = dollar) +
+  scale_y_continuous(labels = dollar) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+
+```
+
+
+<br>
+Another important aspect of housing and demographic trends is household size. By examining the evolution of average household size over time, we can identify shifts in living arrangements, population density, and housing demands across different regions. The following visualizations showcase these trends and provide insight into household composition over the years.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+ggplot(joined_data_task4, aes(x = year, y = avg_household, group = GEOID)) +
+  geom_line(color = "steelblue", alpha = 0.3) + 
+  geom_line(
+    data = year_summary, 
+    mapping = aes(x = year, y = avg_household), 
+    inherit.aes = FALSE,                        
+    color = "darkred", 
+    size = 1.5,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Average Household Size Over Time by CBSA",
+    x = "Year",
+    y = "Average Household Size"
+  ) +
+  theme_minimal(base_size = 14)+
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+
+
+
+## Building Indices
+
+
+To make housing affordability more comparable across regions and over time, we will standardize the rent-to-income ratio relative to its 2009 baseline level. This will allow us to better identify which CBSAs face the greatest affordability challenges and how they've evolved since the starting period in our data.
+
+<br>
+First, we focus on Texas to examine how the rent-to-income ratio has changed over time. Affordability remained relatively stable for much of the period but began to worsen in 2020, reflecting the post-COVID surge in rent growth outpacing income in the years following the pandemic. 
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+joined_data_task4B = inner_join(
+  INCOME,
+  RENT,
+  join_by(GEOID == GEOID, year == year))  |>
+  mutate(rent_income_ratio = (monthly_rent / household_income)*100) |>
+  select(GEOID, NAME.x, year, household_income, monthly_rent, rent_income_ratio)
+
+
+joined_data_task4BA = inner_join(
+  joined_data_task4B,
+  POPULATION,
+  join_by(GEOID == GEOID, year == year)) |>
+  mutate(state = str_extract(NAME, ", (.{2})", group=1))  |>
+  select(GEOID, NAME.x, year, household_income, monthly_rent, rent_income_ratio, population, state)
+
+baseline_2009 = joined_data_task4BA |>
+  filter(year == 2009) |>
+  summarise(baseline = mean(rent_income_ratio, na.rm = TRUE)) |>
+  pull(baseline)
+
+joined_data_task4BA = joined_data_task4BA |>
+  mutate(
+    rent_income_ratio_std = (rent_income_ratio / baseline_2009) * 100
+  )
+
+
+
+full_texas = joined_data_task4BA |>
+  filter(state == 'TX')
+ 
+year_summary <- full_texas |>
+  group_by(year) |>
+  summarize(avg_rent_income_ratio_std = mean(rent_income_ratio_std, na.rm = TRUE))
+
+ggplot(full_texas, aes(x = year, y = rent_income_ratio_std, group = GEOID)) +
+  geom_line(color = "steelblue", alpha = 0.3) +  
+  geom_line(
+    data = year_summary,
+    mapping = aes(x = year, y = avg_rent_income_ratio_std), 
+    inherit.aes = FALSE,
+    color = "darkred",
+    size = 1.5,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Standardized Rent-to-Income Ratio Over Time: Texas",
+    x = "Year",
+    y = "Standardized Rent-to-Income Ratio"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+
+We now focus on two CBSAs in Texas, the major metropolitan Dallas-Fort Worth area and Amarillo in the Texas Panhandle. In Dallas-Fort Worth, housing affordability has steadily worsened and is now at its most dire since 2009. On the other hand, affordability in Amarillo has remained relatively stable, with rent-to-income ratios closely aligning with the national baseline from 2009.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+texas = joined_data_task4BA |>
+  filter(GEOID %in% c(12420, 19100, 26420, 41700))
+
+
+
+texas_dfw <- full_texas |>
+  filter(GEOID %in% c(19100)) |>
+  group_by(year) |>
+  summarize(avg_rent_income_ratio_std = mean(rent_income_ratio_std, na.rm = TRUE))
+
+
+
+texas_aml <- full_texas |>
+  filter(GEOID %in% c(11100)) |>
+  group_by(year) |>
+  summarize(avg_rent_income_ratio_std = mean(rent_income_ratio_std, na.rm = TRUE))
+
+ 
+
+
+
+ggplot(full_texas, aes(x = year, y = rent_income_ratio_std, group = GEOID)) +
+  geom_line(color = "steelblue", alpha = 0.3) +  
+  geom_line(
+    data = texas_dfw,
+    mapping = aes(x = year, y = avg_rent_income_ratio_std),  
+    inherit.aes = FALSE,
+    color = "darkred",
+    size = 1.5,
+    linetype = "dashed"
+  ) +
+  geom_line(
+    data = texas_aml,
+    mapping = aes(x = year, y = avg_rent_income_ratio_std), 
+    inherit.aes = FALSE,
+    color = "darkred",
+    size = 1.5,
+    linetype = "dashed"
+  ) +
+  geom_text(
+    data = texas_dfw |> filter(year == max(year)),
+    aes(x = year + 0.2, y = avg_rent_income_ratio_std, label = "Dallas–Fort Worth"),
+    color = "darkred",
+    fontface = "bold",
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = texas_aml |> filter(year == max(year)),
+    aes(x = year + 0.2, y = avg_rent_income_ratio_std, label = "Amarillo"),
+    color = "darkred",
+    fontface = "bold",
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    title = "Dallas-Fort Worth and Amarillo",
+    x = "Year",
+    y = "Standardized Rent-to-Income Ratio"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+```
+
+
+
+## Housing Growth
+
+
+Our next section will focus on how many new housing units are permitted in each CBSA relative to both its current population and its population growth over the past five years. Using 2014 as a standardized baseline for each CBSA, we compare how permit activity has evolved, highlighting regions with strong or weak affordability trends.
+
+
+The tables below highlight the CBSAs with the strongest and weakest housing growth in 2023, based on the standardized instant housing rate. These rankings help identify CBSAs where housing construction is keeping pace with population growth and those falling behind.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+full_years <- 2009:2023
+
+
+joined_data_task5 = inner_join(
+  PERMITS,
+  POPULATION,
+  join_by(CBSA == GEOID, year == year)) |>
+  arrange(CBSA, year) |>  
+  group_by(CBSA) |>   
+  mutate(
+    pop_5yr_ago = lag(population, 5),                    
+    pop_growth_5yr = (population - pop_5yr_ago) / pop_5yr_ago * 100,                    
+    instant_rate = (new_housing_units_permitted / population),
+    lag_rate = (new_housing_units_permitted / pop_growth_5yr)
+  ) |>
+  ungroup() |>
+  select(CBSA, NAME, year, new_housing_units_permitted, population, pop_5yr_ago, pop_growth_5yr, instant_rate, lag_rate)
+
+
+
+complete_cbsa <- joined_data_task5 |>
+  group_by(CBSA) |>
+  filter(any(year == 2009) & any(year == 2023)) |>
+  ungroup()
+
+
+joined_data_task5_std <- complete_cbsa |>
+  group_by(CBSA) |>
+  mutate(
+    instant_base = instant_rate[year == 2014],
+    lag_base = lag_rate[year == 2014],
+    instant_std = (instant_rate / instant_base) * 100,
+    lag_std = (lag_rate / lag_base) * 100
+  ) |>
+  ungroup()
+
+
+
+top_instant <- joined_data_task5_std |>
+  filter(year == 2023) |>
+  arrange(desc(instant_std)) |>
+  slice_head(n = 10) |>
+  select(CBSA, NAME, year, instant_std, instant_rate)
+
+
+datatable(
+  top_instant |> select(NAME, instant_std, CBSA),
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Strongest Housing Growth CBSA Name",
+    "Standardized Instant Rate",
+    "CBSA"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+bottom_instant <- joined_data_task5_std |>
+  filter(year == 2023) |>
+  arrange((instant_std)) |>
+  slice_head(n = 10) |>
+  select(CBSA, NAME, year, instant_std, instant_rate)
+
+
+datatable(
+  bottom_instant |> select(NAME, instant_std, CBSA),
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Weakest Housing Growth CBSA Name",
+    "Standardized Instant Rate",
+    "CBSA"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+```
+
+<br>
+
+The line graph below visualizes the CBSAs with the strongest and weakest housing growth over time. The green highlights the CBSAs that have added new permits to outpace population growth, while the red shows areas where housing growth has stalled.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+selected_top_cbsas <- c(43300, 16180, 39460, 36100, 42140, 41540, 34100, 43100, 21060, 37340)  
+
+plot_data_top <- joined_data_task5_std |>
+  filter(CBSA %in% selected_top_cbsas)
+
+
+
+selected_bottom_cbsas <- c(47020, 13900, 34060, 24220, 48540, 42540, 37900, 48700, 24500, 11180)
+
+
+plot_data_bottom <- joined_data_task5_std |>
+  filter(CBSA %in% selected_bottom_cbsas)
+
+
+
+plot_data_top <- plot_data_top |> mutate(group = "Top CBSAs")
+plot_data_bottom <- plot_data_bottom |> mutate(group = "Bottom CBSAs")
+
+combined_plot_data <- bind_rows(plot_data_top, plot_data_bottom)
+
+ggplot(combined_plot_data, aes(x = year, y = instant_std, group = CBSA, color = group)) +
+  geom_line(aes(color = group), size = 1.2) +
+  geom_point(aes(color = group), size = 2, alpha = 0.8) +
+  scale_color_manual(values = c("Top CBSAs" = "forestgreen", "Bottom CBSAs" = "lightcoral")) +
+  labs(
+    title = "Standardized Instant Housing Rate Over Time",
+    x = "Year",
+    y = "Instant Rate (Standardized)",
+    color = "CBSA Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+
+
+
+
+<br><br>
+
+## Policy Brief
+
+
+Building on all the analysis and findings discussed so far, this section will present a policy brief that uses our insights to propose policy changes. By examining patterns in wages, employment, and housing affordability, we aim to improve living conditions in regions across the United States. 
+
+### Sponsors
+Our primary sponsor will represent Sheboygan, Wisconsin, a city often called the Malibu of the Midwest. Known for its freshwater beaches next to Lake Michigan, Sheboygan is a vacation destination just one hour north of Milwaukee. Sheboygan has successfully supported housing growth while keeping it affordable for residents.
+
+Our co-sponsor will represent Morgantown, West Virginia. Morgantown is primarily known as the home of West Virginia University (WVU). A bustling college town, rising housing costs force pressure on students, faculty, and residents. The high rent-to-income ratio here makes it a candidate for new policies to encourage growth.
+
+
+### Labor Interests
+
+Restaurant and Service Industry: Many students at West Virginia University work in restaurants and other service jobs to help pay for school. More affordable housing would reduce their financial stress and allow them to focus on schoolwork. Additionally, increased disposable income would encourage students and families to dine out more, boosting restaurants and supporting the community.
+
+Food Manufacturing: A key local industry in Sheboygan. Affordable housing near factories would let workers live closer to their jobs, improving work-life balance and reducing long commutes.
+
+
+### Metric Overview
+
+Rent vs Income Ratio: This will measure what portion of a household's income goes to rent. The higher the percentage, the more unaffordable housing is for residents. The following line chart maps several prominent U.S. college towns, including Penn State, Michigan State, and Iowa State University, showing how their rent-to-income ratios have trended over the last 15 years. We can see that Morgantown falls on the more unaffordable side compared with the other college towns.
+
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+ 
+rent_income_table <- INCOME %>%
+  inner_join(RENT, by = c("GEOID", "year")) %>%
+  inner_join(POPULATION, by = c("GEOID", "year")) %>%
+  mutate(
+    rent_to_income_ratio = monthly_rent / household_income  
+  ) %>%
+  mutate(state = str_extract(NAME, ", (.{2})", group=1)) %>%
+  select(GEOID, NAME, year, household_income, monthly_rent, population, rent_to_income_ratio, state) %>%
+  arrange(GEOID, year)
+
+
+selected_geoids <- c(
+  29620, 14010, 13780, 44300, 30860, 29940, 30700, 11180, 34060)
+
+plot_data <- rent_income_table %>%
+  filter(GEOID %in% selected_geoids)
+
+special_cbsas <- plot_data %>% filter(GEOID == 34060)
+other_cbsas <- plot_data %>% filter(GEOID != 34060)
+
+ggplot() +
+  geom_line(data = other_cbsas, aes(x = year, y = rent_to_income_ratio, group = GEOID),
+            color = "steelblue", alpha = 0.3) +
+  geom_line(data = special_cbsas, aes(x = year, y = rent_to_income_ratio, group = GEOID),
+            color = "darkred", size = 1.5, linetype = "dashed") +
+  geom_text(
+    data = special_cbsas %>% filter(year == max(year)),
+    aes(x = year + 0.2, y = rent_to_income_ratio, label = 'Morgantown'),
+    color = "darkred",
+    fontface = "bold",
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  
+  labs(
+    title = "US College Towns: Rent vs Income",
+    x = "Year",
+    y = "Rent-to-Income Ratio"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+Housing Growth: This will measure how quickly a city is permitting new housing when compared to its population growth. The higher the housing growth rate, the more a city keeps up with population demand. Morgantown, in addition to having low affordability across major US college towns, is also not effectively permitting new housing units to keep pace with population growth. These two factors together are putting significant economic pressure on residents. This makes it difficult for students and faculty to find affordable housing. 
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+selected_geoids <- c(29620, 14010, 13780, 44300, 30860, 29940, 30700, 11180, 34060)
+
+plot_data_selected <- joined_data_task5_std |>
+  filter(CBSA %in% selected_geoids) |>
+  mutate(group = if_else(CBSA == 34060, "Special CBSA", "Other CBSAs"))
+
+ggplot() +
+  geom_line(data = plot_data_selected %>% filter(CBSA != 34060),
+            aes(x = year, y = instant_std, group = CBSA),
+            color = "steelblue", alpha = 0.3) +
+  
+  geom_line(data = plot_data_selected %>% filter(CBSA == 34060),
+            aes(x = year, y = instant_std, group = CBSA),
+            color = "darkred", size = 1.5, linetype = "dashed") +
+  
+  geom_text(
+    data = plot_data_selected %>% filter(CBSA == 34060 & year == max(year)),
+    aes(x = year + 0.2, y = instant_std, label = "Morgantown"),
+    color = "darkred",
+    fontface = "bold",
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  
+  labs(
+    title = "US College Towns: Housing Growth Rate",
+    x = "Year",
+    y = "Instant Rate (Standardized)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(angle = 0),
+    plot.title = element_text(face = "bold")
+  )
+
+
+```
+
+
+### Conclusion
+
+By encouraging cities to permit new housing in line with population growth, students, faculty, and local residents will be able to access affordable homes closer to campus and workplaces. For the Morgantown community, this means reduced financial stress, shorter commutes, and stronger local economies. For local government officials, it presents an opportunity to foster economic growth, support essential labor sectors, and improve the overall quality of life. Implementing these housing policies ensures that communities remain vibrant and resilient for years to come. 
