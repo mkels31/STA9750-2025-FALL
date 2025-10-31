@@ -256,13 +256,15 @@ Housing affordability has become a nationwide concern in the United States and a
 #| include: false
 
 
+if(!require("tidyverse")) install.packages("tidyverse")
 
+library(readr)
 library(dplyr)
 library(DT) 
 library(scales) 
 library(ggplot2)
 library(plotly) 
-
+library(stringr)
 
 #Q1
 PERMITS_FILTER = PERMITS |> 
