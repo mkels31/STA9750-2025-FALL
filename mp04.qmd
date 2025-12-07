@@ -1,0 +1,857 @@
+---
+title: "Mini Project #04:<br>Just The Facts"
+author: "Matthew Kelsall"
+format:
+  html:
+    toc: true
+    toc-title: "Jump To"
+    number-sections: false
+    theme: Yeti
+    self-contained: true
+---
+
+![](mp04.jpg){width="100%" height="100%" fig-align="center"}
+
+## Introduction
+In this report, we examine key outputs and historical patterns from the Bureau of Labor Statistics (BLS). The recent dismissal of Dr. Erika McEntarfer in August prompted scrutiny of the agency, as many economists raised concerns about how leadership changes could affect the interpretation of economic data. Given the major influence BLS reports have on markets and public perception, understanding their production and revision processes is essential. We will analyze trends in the Current Employment Statistics (CES) estimates and revisions dating back to 1979 to identify long-term patterns and anomalies. This report will serve as a fact-checking exercise, evaluating the evidence behind claims that the BLS has produced politically biased or misleading figures.
+
+
+## Data Acquisition
+We begin by gathering the data sources necessary for our analysis. Our code retrieves the CES Total Nonfarm Payroll, seasonally adjusted, for every month from January 1979 through June 2025 to ensure a complete long-term view of employment trends.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+
+library(httr2)
+library(rvest)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(readr)
+library(stringr)
+library(purrr)
+library(DT)
+library(ggplot2)
+
+url <- "https://data.bls.gov/pdq/SurveyOutputServlet"
+
+resp <- request(url) |>
+  req_user_agent("httr2 + rvest CES scraper") |>
+  req_headers(Referer = "https://data.bls.gov/toppicks?survey=ce") |>
+  req_body_form(
+    request_action       = "get_data",
+    reformat             = "true",
+    from_year            = "1979",
+    to_year              = "2025",
+    series_id            = "CES0000000001",
+    years_option         = "specific_years",
+    output_view          = "data",
+    delimiter            = "comma",
+    output_format        = "html",
+    include_graphs       = "false",
+    annualAveragesRequested = "false"
+  ) |>
+  req_perform()
+
+# Parse HTML with rvest
+html <- resp_body_html(resp)
+
+tables <- html |> html_elements("table") |> html_table(fill = TRUE)
+
+raw <- tables[[2]]   # main data table
+
+# Tidy
+df <- raw |>
+  select(Year, Jan:Dec) |>
+  pivot_longer(
+    cols = Jan:Dec,
+    names_to = "Month",
+    values_to = "Level_raw"
+  ) |>
+  mutate(
+    Level  = parse_number(Level_raw),
+    Month3 = str_sub(Month, 1, 3),
+    Date   = ymd(paste0(Year, "-", Month3, "-01"))
+  ) |>
+  filter(!is.na(Date), !is.na(Level)) |>
+  arrange(Date) |>
+  select(Date, Level)
+
+df_final <- df |> filter(Date >= as.Date("1979-01-01"))
+#df_final
+
+
+datatable(
+  df_final |> 
+    slice(1:2),
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Date",
+    "Level"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+```
+
+
+Next we will do the same for CES Revisions for each month from January 1979 to June 2025. 
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+
+# 1. Fetch CES Revisions page
+rev_req <- request("https://www.bls.gov/web/empsit/cesnaicsrev.htm") |>
+  req_user_agent("httr2 + rvest CES Revisions scraper")
+rev_resp <- rev_req |> req_perform()
+rev_page <- rev_resp |> resp_body_html()
+
+# 2. Extract all tables
+rev_tbl_list <- rev_page |> html_elements("table") |> html_table(header = FALSE)
+
+# 3. Identify which table contains 1979 in the 2nd column
+year_table_candidates <- which(
+  vapply(
+    rev_tbl_list,
+    function(tbl) {
+      ncol(tbl) >= 2 && any(grepl("1979", as.character(tbl[[2]])))
+    },
+    logical(1)
+  )
+)
+
+# Start of year-by-year blocks
+year_table_index <- min(year_table_candidates)
+
+# There are 47 years from 1979 to 2025
+revision_tables <- rev_tbl_list[seq(from = year_table_index, length.out = 47)]
+
+# 4. Function to extract date, original, final, revision from one table
+extract_revisions_from_tbl <- function(tbl) {
+  tbl |>
+    select(
+      month    = 1,   # Month names
+      year_col = 2,   # Year
+      original = 3,   # 1st estimate (SA)
+      final    = 5    # 3rd estimate (SA)
+    ) |>
+    filter(str_detect(year_col, "^[0-9]{4}$")) |>
+    slice(1:12) |>  # Only 12 months
+    mutate(
+      month    = str_sub(month, 1, 3),
+      date     = ym(str_c(year_col, " ", month)),
+      original = parse_number(original),
+      final    = parse_number(final),
+      revision = final - original
+    ) |>
+    select(date, original, final, revision) |>
+    drop_na(date) |>
+    arrange(date)
+}
+
+# 5. Apply to all tables and combine
+ces_revisions <- map_dfr(revision_tables, extract_revisions_from_tbl) |>
+  filter(date >= as.Date("1979-01-01"),
+         date <= as.Date("2025-06-01")) |>
+  arrange(date)
+
+# View result
+#ces_revisions
+
+datatable(
+  ces_revisions |> 
+    slice(1:2),
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Date",
+    "Original",
+    "Final",
+    "Revision"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+```
+
+## Data Integration and Exploration
+To begin our analysis, we will join these tables  to examine trends in CES levels and their subsequent revisions. We will then explore the combined data to identify meaningful patterns and answer key analytical questions.
+
+
+```{r, fig.height=4, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+df_final <- df_final %>% rename(date = Date)
+
+df_joined <- df_final %>%
+  left_join(ces_revisions, by = "date")
+
+
+# Identify the largest positive and negative revisions
+max_pos <- max(df_joined$revision, na.rm = TRUE)
+max_neg <- min(df_joined$revision, na.rm = TRUE)
+
+# Create a color column
+df_plot <- df_joined %>%
+  mutate(
+    bar_color = case_when(
+      revision == max_pos ~ "#228B22",
+      revision == max_neg ~ "red",
+      TRUE ~ "grey"
+    )
+  )
+
+# Plot
+ggplot(df_plot, aes(x = date, y = revision, fill = bar_color)) +
+  geom_col() +
+  scale_fill_identity() +
+  labs(
+    title = "Largest Positive and Negative CES Revisions",
+    x = "Date",
+    y = "Revision"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+# Find largest positive revision
+max_pos_row <- df_joined %>% filter(revision == max(revision, na.rm = TRUE))
+max_pos_month <- format(max_pos_row$date, "%B %Y")
+max_pos_value <- max_pos_row$revision
+
+# Find largest negative revision
+max_neg_row <- df_joined %>% filter(revision == min(revision, na.rm = TRUE))
+max_neg_month <- format(max_neg_row$date, "%B %Y")
+max_neg_value <- max_neg_row$revision
+
+```
+
+The chart above displays the monthly trend of CES revisions over the past 45 years. The largest negative revision occurred in **`{r} max_neg_month` with a `{r} max_neg_value` decrease**, while the largest positive revision occurred in **`{r} max_pos_month` with a `{r} max_pos_value` increase**. Notably, the largest decrease coincided with the month when COVID-19 was officially declared a global pandemic in the United States.
+
+
+<br>
+```{r, fig.height=4, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+
+# Add year column
+df_yearly <- df_joined %>%
+  mutate(Year = year(date))
+
+# Compute fraction of positive revisions per year
+yearly_pos_frac <- df_yearly %>%
+  group_by(Year) %>%
+  summarise(
+    total_revisions = n(),
+    positive_revisions = sum(revision > 0, na.rm = TRUE),
+    positive_fraction = positive_revisions / total_revisions * 100
+  ) %>%
+  # Create color column for points
+  mutate(
+    point_color = case_when(
+      positive_fraction > 50 ~ "#228B22",
+      positive_fraction < 50 ~ "red",
+      positive_fraction == 50 ~ "darkgrey"
+    )
+  )
+
+# Plot
+ggplot(yearly_pos_frac, aes(x = Year, y = positive_fraction)) +
+  geom_line(color = "grey70", size = 1) +      # same grey as previous bar chart
+  geom_point(aes(color = point_color), size = 3) +
+  scale_color_identity() +                     # use the colors exactly as specified
+  labs(
+    title = "Fraction of CES Revisions That Are Positive Each Year",
+    x = "Year",
+    y = "Positive Revisions (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+
+```
+
+The chart illustrates the yearly share of CES months that experienced a positive revision, with values plotted from 1979 to 2025. Each year is represented by a point whose color indicates whether positive revisions outweighed negative ones. Green bubbles highlight years with more than 50% positive revisions, while red bubbles represent years with more than 50% negative revisions. Overall, the trend shows that in most years, positive revisions outnumber the negative ones. 
+
+<br>
+```{r, fig.height=6, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Step 1: Add administration and year
+df_admin_yearly <- df_joined %>%
+  mutate(
+    Administration = case_when(
+      date >= as.Date("2001-01-01") & date <= as.Date("2008-12-31") ~ "Bush",
+      date >= as.Date("2009-01-01") & date <= as.Date("2016-12-31") ~ "Obama",
+      date >= as.Date("2017-01-01") & date <= as.Date("2020-12-31") ~ "Trump",
+      date >= as.Date("2021-01-01") & date <= as.Date("2024-12-31") ~ "Biden",
+      TRUE ~ NA_character_
+    ),
+    Year = year(date)
+  ) %>%
+  filter(!is.na(Administration))
+
+# Step 2: Compute fraction of positive revisions per year AND administration
+admin_yearly_frac <- df_admin_yearly %>%
+  group_by(Administration, Year) %>%
+  summarise(
+    total_revisions = n(),
+    positive_revisions = sum(revision > 0, na.rm = TRUE),
+    positive_fraction = positive_revisions / total_revisions * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    point_color = case_when(
+      positive_fraction > 50 ~ "#228B22",   # forest green
+      positive_fraction < 50 ~ "red",
+      positive_fraction == 50 ~ "darkgrey"
+    ),
+    Administration = factor(Administration, levels = c("Bush", "Obama", "Trump", "Biden")) # custom order
+  )
+
+# Step 3: Plot
+ggplot(admin_yearly_frac, aes(x = Year, y = positive_fraction)) +
+  geom_line(color = "grey70", size = 1) +
+  geom_point(aes(color = point_color), size = 3) +
+  scale_color_identity() +
+  facet_wrap(~ Administration, ncol = 1, scales = "free_x") +
+  labs(
+    title = "Fraction of CES Revisions That Are Positive Each Year by Administration",
+    x = "Year",
+    y = "Positive Revisions (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+
+```
+
+The visualization splits the CES revisions by the last four presidential administrations: Bush, Obama, Trump, and Biden. It shows the percentage of monthly positive revisions by year. During Bush's presidency, revisions were mostly positive, with negative years appearing toward the end, coinciding with the onset of the Great Recession in 2008. Under Obama, the majority of years were positive, though 2015 and 2016 experienced more negative months. Trump's administration was evenly split, with two years showing predominantly positive revisions and two years predominantly negative. During Biden's presidency, two years were positive, one year negative, and the final year was neutral. 
+
+
+<br>
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+# Add Administration column
+df_admin <- df_joined %>%
+  mutate(Administration = case_when(
+    date >= as.Date("2001-01-01") & date <= as.Date("2008-12-31") ~ "Bush",
+    date >= as.Date("2009-01-01") & date <= as.Date("2016-12-31") ~ "Obama",
+    date >= as.Date("2017-01-01") & date <= as.Date("2020-12-31") ~ "Trump",
+    date >= as.Date("2021-01-01") & date <= as.Date("2024-12-31") ~ "Biden",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Administration))
+
+# Compute percentage of positive revisions under each administration
+admin_summary <- df_admin %>%
+  mutate(
+    Administration = factor(Administration, levels = c("Bush", "Obama", "Trump", "Biden"))
+  ) %>%
+  group_by(Administration) %>%
+  summarise(
+    total_months = n(),
+    positive_months = sum(revision > 0, na.rm = TRUE),
+    positive_fraction = positive_months / total_months * 100
+  )
+
+#admin_summary
+
+admin_summary_formatted <- admin_summary %>%
+  mutate(
+    Positive_Fraction = sprintf("%.1f%%", positive_fraction)  # format as "xx.x%"
+  ) %>%
+  select(Administration, total_months, positive_months, Positive_Fraction)
+
+datatable(
+  admin_summary_formatted, 
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Administration",
+    "Total Months",
+    "Positive Months",
+    "Positive Fraction"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+```
+<br>
+Breaking the administrations out into a table, we can see the percentage of positive months for each presidency. Notably, the Democratic presidents, Obama and Biden, have the highest percentages of positive months, with **66.7% for Obama** and **54.2% for Biden**. The Republican presidents have lower percentages, with **53.1% for Bush** and **50.0% for Trump**. This comparison highlights how positive CES revisions varied across administrations.
+
+
+
+<br>
+```{r, fig.height=5, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+# Step 1: Extract month and compute average revision
+df_monthly_avg <- df_joined %>%
+  mutate(Month = month(date, label = TRUE, abbr = TRUE)) %>%  # Jan, Feb, etc.
+  group_by(Month) %>%
+  summarise(
+    avg_revision = mean(revision, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    bar_color = ifelse(avg_revision > 0, "#228B22",  # forest green
+                       ifelse(avg_revision < 0, "red", "darkgrey"))
+  )
+
+# Step 2: Plot with labels
+ggplot(df_monthly_avg, aes(x = Month, y = avg_revision, fill = bar_color)) +
+  geom_col() +
+  geom_text(aes(label = round(avg_revision, 1)), 
+            vjust = ifelse(df_monthly_avg$avg_revision >= 0, -0.5, 1.5), 
+            color = "black", size = 3.5) +
+  scale_fill_identity() +
+  labs(
+    title = "Average CES Revisions by Month",
+    x = "Month",
+    y = "Average Revision"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+
+```
+
+The chart shows that, on average, September experiences the largest positive CES revision, with an increase of 53.3. The largest negative revision occurs the following month, October, with a decrease of 17.7. Notably, the fourth quarter is the only quarter in which at least two of the three months consistently with negative revisions. This pattern suggests a seasonal effect in the CES data, with the end of the year tending to have more downward adjustments compared to earlier months.
+
+## Statistical Analysis
+In this section, we perform statistical tests to examine patterns in CES revisions and support the insights observed in the visualizations. Specifically, we use t-tests and proportion tests to evaluate whether changes in CES revisions are statistically significant.
+
+<br>
+One question of interest is whether the fraction of negative revisions has increased post-2000 compared to earlier periods. First we create a simple table that will highlight the count of negative months and total months in our dataset. 
+<br>
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+library(dplyr)
+
+# Step 1: Create pre-2000 and post-2000 indicator
+df_test <- df_joined %>%
+  filter(!is.na(revision)) %>%               # remove NAs just in case
+  mutate(
+    period = ifelse(date < as.Date("2000-01-01"), "Pre-2000", "Post-2000"),
+    is_negative = revision < 0
+  )
+
+# Step 2: Compute counts for each period
+neg_counts <- df_test %>%
+  group_by(period) %>%
+  summarise(
+    n_negative = sum(is_negative),
+    n_total = n(),
+    .groups = "drop"
+  )
+
+
+#neg_counts  # check that there are exactly 2 rows: pre2000, post2000
+
+datatable(
+  neg_counts,
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Period",
+    "Negative Months",
+    "Total Months"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+```
+
+<br>
+To test whether the fraction of negative CES revisions has increased post-2000, we compared the proportion of months with negative revisions before and after 2000. Using a statistical proportion test, we found that the post-2000 period has a higher fraction of negative months compared to the pre-2000 period. This indicates that negative revisions became somewhat more common in the more recent decades, suggesting a subtle shift in the behavior of CES revisions over time.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+# Step 3: Convert to numeric vectors
+x <- neg_counts$n_negative
+n <- neg_counts$n_total
+
+# Step 4: Run proportion test
+prop_test_result <- prop.test(x = x, n = n, alternative = "greater")
+#prop_test_result
+
+# Extract relevant info
+prop_estimates <- prop_test_result$estimate         # proportions
+test_stat <- prop_test_result$statistic            # X-squared
+p_value <- prop_test_result$p.value                # p-value
+
+# Create a clean data frame for display
+prop_summary <- data.frame(
+  Period = c("Pre-2000", "Post-2000"),
+  Fraction_Negative = round(prop_estimates, 3)
+)
+
+# Print summary
+datatable(
+  prop_summary,
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c("Period", "Fraction of Negative Months"),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+
+
+```
+
+
+## Fact Check BLS Revisions
+Next we will examine the political commentary surrounding the firing of Dr. Erika McEntarfer and evaluate the claims of political bias in the CES reports. Using the data and visualizations presented throughout this report, we assess whether the claims made about distortions or unusually negative revisions are supported by the evidence. This analysis allows us to separate fact from opinion and provide an objective assessment on historical CES trends.
+<br>
+
+### Claim 1
+
+**Senator Rick Scott, Florida (R)**
+Called for “somebody non-political” to replace McEntarfer.
+“I’d like somebody that just put out the darn numbers,” he said in an interview on Friday. “All the numbers we get up here are all massaged because somebody has an agenda.”
+
+In our previous analysis, we observed that the revisions were slightly more frequently negative under Republican presidents, Bush and Trump, compared to Democratic presidents, Obama and Biden. 
+
+```{r, fig.height=6, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+ggplot(admin_yearly_frac, aes(x = Year, y = positive_fraction)) +
+  geom_line(color = "grey70", size = 1) +
+  geom_point(aes(color = point_color), size = 3) +
+  scale_color_identity() +
+  facet_wrap(~ Administration, ncol = 1, scales = "free_x") +
+  labs(
+    title = "Fraction of CES Revisions That Are Positive Each Year by Administration",
+    x = "Year",
+    y = "Positive Revisions (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+<br>
+To investigate whether this pattern reflects political influence, we examine the months where the negative revision exceeded 1% of total employment. The results show the fraction of extreme negative revisions by presidential administration. 
+
+```{r, fig.height=5, fig.width=8}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+df_extreme <- df_joined %>%
+  filter(!is.na(revision), !is.na(Level)) %>%
+  mutate(
+    Administration = case_when(
+      date >= as.Date("2001-01-01") & date <= as.Date("2008-12-31") ~ "Bush",
+      date >= as.Date("2009-01-01") & date <= as.Date("2016-12-31") ~ "Obama",
+      date >= as.Date("2017-01-01") & date <= as.Date("2020-12-31") ~ "Trump",
+      date >= as.Date("2021-01-01") & date <= as.Date("2024-12-31") ~ "Biden",
+      TRUE ~ NA_character_
+    ),
+    #revision_pct = abs(revision) / Level,       # convert to fraction
+    revision_pct = revision / Level,       # convert to fraction
+    #is_extreme = revision_pct > 0.001      # convert to fraction
+    is_extreme = revision_pct < -0.001           # >1% of total employment
+  ) %>%
+  filter(!is.na(Administration))
+
+# Step 2: Count extreme revisions by administration
+extreme_summary <- df_extreme %>%
+  group_by(Administration) %>%
+  summarise(
+    total_months = n(),
+    extreme_months = sum(is_extreme),
+    fraction_extreme = extreme_months / total_months * 100,
+    .groups = "drop"
+  )
+
+# Step 3: Display table
+
+
+# Step 4: Optional bar chart
+ggplot(extreme_summary, aes(x = Administration, y = fraction_extreme, fill = Administration)) +
+  geom_col() +
+  geom_text(aes(label = round(fraction_extreme, 1)), vjust = -0.5) +
+  scale_fill_manual(values = c("Bush" = "red", "Obama" = "blue", "Trump" = "red", "Biden" = "blue")) +
+  labs(
+    title = "Fraction of CES Months with Extreme Negative Revisions (>.01% of Level)",
+    x = "Administration",
+    y = "Fraction of Extreme Negative Months (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
+
+```
+
+Trump’s administration shows a notably higher percentage of months with extreme revisions, with 6.2% of months classified as extremely negative. In comparison, Obama had only 1% of his 96 months with extreme negative revisions, and Biden had none. While this pattern may superficially support Senator Rick Scott’s claim that “numbers are massaged,” a closer examination suggests otherwise. The extreme negative months during Trump’s term correspond to March and April 2020, coinciding with the onset of the COVID-19 global pandemic. Overall, while there were a few unusually large negative revisions, the evidence indicates that the claim of systematic manipulation is mostly unsupported.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+# Filter for extreme revisions and add administration
+df_extreme_months <- df_joined %>%
+  filter(!is.na(revision), !is.na(Level)) %>%
+  mutate(
+    Administration = case_when(
+      date >= as.Date("2001-01-01") & date <= as.Date("2008-12-31") ~ "Bush",
+      date >= as.Date("2009-01-01") & date <= as.Date("2016-12-31") ~ "Obama",
+      date >= as.Date("2017-01-01") & date <= as.Date("2020-12-31") ~ "Trump",
+      date >= as.Date("2021-01-01") & date <= as.Date("2024-12-31") ~ "Biden",
+      TRUE ~ NA_character_
+    ),
+    revision_pct = revision / Level,
+    is_extreme = revision_pct < -0.001,   # 0.01% threshold
+    direction = ifelse(revision_pct > 0, "Positive", "Negative")
+  ) %>%
+  filter(!is.na(Administration), is_extreme) %>%
+  select(Date = date, Administration, Revision = revision, `Revision (%)` = revision_pct, Direction = direction)
+
+# Display table
+datatable(
+  df_extreme_months,
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+
+```
+<br>
+![](meter-mostly-false.jpg){width="20%" height="20%" fig-align="center"}      **Mostly False** for Rick Scott's claim that "numbers are massaged"
+<br>
+
+### Claim 2
+
+**Doug Holtz-Eakin, American Action Forum**
+"The president is just shooting the messenger, it's not more complicated than that. The data that were released today conformed in every way to the standards of past employment reports."
+
+To evaluate this claim, we examine whether the June 2025 employment revision was unusually large compared with historical patterns. Specifically, we calculate the revision as a percentage of the original employment level and measure how many standard deviations it deviates from the long-term average revision percentage. This allows us to determine objectively whether the June 2025 data falls within the normal range of past employment reports.
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+df_june <- df_joined |> 
+  filter(date == as.Date("2025-06-01"))
+
+
+datatable(
+  df_june,
+  style = "bootstrap5",
+  class = "table table-striped table-hover",
+  colnames = c(
+    "Date",
+    "Level",
+    "Original",
+    "Final",
+    "Revision"
+  ),
+  options = list(
+    searching = FALSE,
+    info = FALSE,
+    lengthChange = TRUE,
+    paging = FALSE,
+    initComplete = JS('function() { $("html").attr("data-bs-theme", "light"); }')
+  )
+)
+
+
+# 1. Extract June 2025 revision and keep numeric %
+latest <- df_joined %>%
+  filter(date == as.Date("2025-06-01")) %>%
+  mutate(
+    revision_pct = revision / Level * 100   # numeric only
+  )
+
+# store numeric value
+latest_rev <- latest
+
+
+june_percent <- df_joined %>%
+  filter(date == as.Date("2025-06-01")) %>%
+  mutate(revision_pct = revision / Level * 100) %>%
+  pull(revision_pct)
+
+# Now format it
+june_percent <- sprintf("%.2f%%", june_percent)
+
+# 2. Historical stats (numeric)
+hist_stats <- df_joined %>%
+  filter(date < as.Date("2025-06-01")) %>%
+  mutate(revision_pct = revision / Level * 100) %>%
+  summarise(
+    mean_rev = mean(revision_pct, na.rm = TRUE),
+    sd_rev   = sd(revision_pct, na.rm = TRUE)
+  )
+
+hist_percent <- df_joined %>%
+  filter(date < as.Date("2025-06-01")) %>%
+  mutate(revision_pct = revision / Level * 100) %>%
+  summarise(mean_rev = mean(revision_pct, na.rm = TRUE)) %>%
+  pull(mean_rev)
+
+# Format as a percent string
+hist_percent_formatted <- sprintf("%.2f%%", hist_percent)
+
+# 3. Compute Z-score
+z_score <- (latest_rev$revision_pct - hist_stats$mean_rev) / hist_stats$sd_rev
+
+# 4. Create formatted table for display
+result <- tibble(
+  date = latest_rev$date,
+  revision = latest_rev$revision,
+  level = latest_rev$Level,
+  revision_pct = sprintf("%.2f%%", latest_rev$revision_pct),
+  historical_mean_pct = sprintf("%.2f%%", hist_stats$mean_rev),
+  historical_sd_pct = sprintf("%.4f", hist_stats$sd_rev),
+  z_score = sprintf("%.2f", z_score)
+)
+
+
+z_score_output <- result$z_score
+
+```
+
+**June 2025**: `{r} june_percent` Revision
+
+**Historical Average, since 1979**: `{r} hist_percent_formatted` Revision
+
+**Z-Score**: `{r} z_score_output`
+
+The June 2025 revision came in at –1.52 standard deviations from the historical average revision percentage. While this is below the long-run mean, the value is still within the range of normal month-to-month variation for employment data. In statistical terms, a deviation of this size is not extreme and does not indicate an unusual or atypical report. Based on this measure, the June 2025 release does not materially depart from the historical pattern, which lends support to the claim that the data “conformed in every way to the standards of past employment reports.”
+
+<br>
+![](meter-true.jpg){width="20%" height="20%" fig-align="center"}      **True** for Doug Holtz-Eakin's claim that data "conformed to past reports"
+
+
+## Conclusion
+Overall, our analysis indicates that CES revisions, while variable, generally follow predictable patterns influenced by economic cycles and seasonal effects rather than political interference. Extreme revisions are rare and typically coincide with extraordinary events, such as the COVID-19 pandemic, rather than administrative bias. The June 2025 report and historical trends further confirm that the BLS consistently produces data that align with established standards, supporting the reliability and integrity of its employment statistics.
