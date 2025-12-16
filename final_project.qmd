@@ -72,7 +72,7 @@ ch_neighbor <- subset(community_health, !is_borough_level)
 
 ![](Manhattan.jpg){width="100%" height="100%" fig-align="center"}
 
-## Motivation and Importance
+## Motivation
 
 Our communities are critical to our lives as residents of New York City’s diverse boroughs. Each neighborhood has its own unique character, population, and resources, which in turn impact the experiences and well-being of its residents. As New Yorkers, we want to live in neighborhoods that are healthy, vibrant, and thriving. One key indicator of a healthy community is food safety, since restaurants play a critical role in public health and day-to-day life. Restaurants not only provide nutrition but also contribute to social life, employment, and the local economy. 
 
