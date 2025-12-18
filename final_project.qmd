@@ -84,7 +84,18 @@ By examining these relationships, we aim to provide insights that inform public 
 
 
 ## Analysis
-<br><br>
+
+To address our overarching question, we broke the problem into four specific questions, each looking at a different way restaurant quality and community health might be connected. Together, these analyses helped us to move beyond a single definition of “restaurant quality” and instead position it within economic, nutritional, and public health contexts.
+
+First, we looked at whether neighborhood economic conditions are related to restaurant inspection outcomes, focusing on poverty and other socioeconomic indicators. This allowed us to see whether lower inspection grades are more common in economically disadvantaged neighborhoods. If that pattern existed, it suggested that restaurant quality may be influenced by broader structural resource constraints rather than isolated individual restaurant behavior. This provided important context for understanding differences in food safety across neighborhoods.
+
+Second, we explored whether neighborhood health outcomes, such as obesity and diabetes prevalence, were associated with the local food environment, measured through the share of American-style cuisine restaurants. This analysis expanded the concept of restaurant quality to include nutritional context, assessing whether communities facing higher rates of chronic disease also experienced more limited or less diverse food options. By doing so, we connected restaurant characteristics not only to immediate safety concerns but also to longer-term health patterns within neighborhoods.
+
+Third, we examined whether neighborhoods with poorer restaurant inspection grades tended to have higher numbers of 311 food poisoning complaints. This analysis directly tested whether regulatory measures of restaurant quality aligned with residents’ reported food safety experiences. By comparing inspection outcomes with complaint data, we assessed whether lower inspection grades corresponded to increased acute food-related illness reports, or whether other factors, such as population density or reporting behavior, played a larger role. 
+
+Finally, we focused more directly on food safety risk by asking whether neighborhoods with high poverty levels also experienced more critical health violations during restaurant inspections. Critical violations are the most serious inspection findings and are the ones most closely linked to foodborne illness risk. This analysis allowed us to move beyond overall grades and look specifically at the types of violations that posed the greatest threat to public health, helping to clarify how economic disadvantage may translate into increased exposure to unsafe food conditions.
+
+Taken together, these four analyses approach the overarching question from economic, regulatory, nutritional, and experiential perspectives. Instead of treating restaurant quality as a single indicator, our framework examined how it interacts with broader community conditions and health outcomes. This integrated approach allowed us to identify where restaurant quality reflects underlying neighborhood disadvantage, where it may contribute to both chronic and acute health risks, and where expected relationships were weaker than anticipated; thus offering a nuanced understanding of how restaurant quality and community health intersect across New York City.
 
 
 ## Data Sources
@@ -133,9 +144,19 @@ This dataset also has multiple limitations. First, 311 submissions are self‑re
 
 
 ## Prior Work
-<br><br>
+
+Current research and literature on food safety practices for restaurants shows that better inspection outcomes is correlated with better community health. According to the [CDC,](https://www.cdc.gov/restaurant-food-safety/php/practices/outbreak-rates.html) communities experience fewer foodborne outbreaks when health departments require restaurants to post inspection results on-site and use letter grades in inspection results. These results were found from two studies where researchers surveyed health departments on their inspection practices in March of 2024 and linked the results to local outbreaks and food safety outcomes.
+
 
 
 ## Next Steps
-<br><br>
+
+Future work could build on this project by incorporating additional years of community health data to address temporal limitations across datasets. Although the datasets overlapped, the community health indicators were only available through 2022, which constrained longitudinal analysis. Expanding the timeframe would allow for more robust trend analysis and enable analyses such as examining how average restaurant inspection grades vary by borough and change over time.
+
+Another important extension would be a focused study on repeated health code violations and violation patterns across restaurants, disaggregated by borough, neighborhood, or season. Examining whether certain violations recur more frequently in specific geographic areas or during particular times of the year could provide deeper insight into systemic food safety issues. Additionally, incorporating qualitative research—such as surveys or interviews with residents and restaurant owners—could help contextualize why some neighborhoods exhibit lower community health indicators and higher violation rates.
+
+Further analyses could explore how community-level factors interact with restaurant inspection outcomes rather than just economic factors. Potential research questions include examining the relationship between other community health indicators and inspection grades, such as the ratio of farmers markets to bodegas and supermarkets, racial and ethnic diversity, levels of gentrification, and environmental factors such as air pollution. While this project conducted cross-dataset analysis, future work could more explicitly model interactions between these variables to better understand their combined effects.
+
+Finally, these expanded analyses could inform evidence-based policy recommendations for NYC agencies, particularly the Department of Health, to improve food safety, reduce repeat violations, and address broader neighborhood-level health disparities.
+
 
