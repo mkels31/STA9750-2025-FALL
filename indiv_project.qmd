@@ -474,7 +474,7 @@ The analysis and visualizations provide a clear answer to the question of whethe
 
 In the broader context of this project, which aims to understand how restaurant quality relates to community health across New York City neighborhoods, these findings suggest that restaurant inspections alone may not fully capture disparities in community health. Although higher poverty is often linked to poorer health outcomes, our analysis indicates that neighborhoods with higher poverty rates do not consistently experience more critical restaurant violations. This suggests that restaurant safety issues are distributed relatively evenly across the city, and that other neighborhood-level factors—such as access to healthcare, prevalence of chronic conditions, environmental conditions, and social determinants of health—likely have a stronger impact on overall community health. Consequently, while restaurant quality remains an important aspect of public health, it represents only one facet of a larger, multifaceted landscape of health equity across NYC neighborhoods. These results underscore the need to consider multiple dimensions of community well-being when evaluating public health interventions and policies.
 
-
+LATEST LATEST LATEST
 
 ```{r}
 #| echo: true
