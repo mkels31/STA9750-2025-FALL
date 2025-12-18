@@ -1,0 +1,502 @@
+---
+title: "Individual Project Report"
+author: "Matthew Kelsall"
+format:
+  html:
+    toc: true
+    toc-title: "Jump To"
+    number-sections: false
+    theme: Yeti
+    self-contained: true
+---
+
+![](indiv_proj.jpg){width="100%" height="100%" fig-align="center"}
+
+## Data Acquisition
+
+As a team, we began by exploring a wide range of publicly available datasets, focusing on those that were both sufficiently large and rich enough to support an interesting and meaningful research question. After reviewing several options, we reconvened to share our findings and ultimately decided to move forward with datasets related to public health and restaurant inspections in New York City. These datasets were well-suited to our overarching goal of examining the relationship between restaurant quality and community health across NYC neighborhoods.
+
+<br>
+The community_health_df() function acquires and prepares the NYC Community Health Profile data for analysis in a reproducible way. It downloads the official DOHMH Community Health Profile Excel file from the NYC government website if it is not already stored locally, saves it to a designated project directory, and reads in the relevant worksheet containing health indicators. Basic cleaning steps are applied by removing non-data rows and converting "n/a" values to missing values. The dataset is then structured to support analysis by separating borough-level records from community district–level observations, enabling neighborhood-level comparisons used throughout the project.
+
+
+```{r}
+#| echo: true
+#| code-fold: show
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+library(readxl); library(tibble); library(dplyr)
+library(tidyverse); library(ggplot2); library(reshape2)
+library(lubridate); library(scales)
+library(forcats); library(patchwork); library(scales);
+library(DT); library(glue); library(httr2); library(sf)
+
+community_health_df <- function() {
+  # Source url and file names
+  src_url  <- "https://www.nyc.gov/assets/doh/downloads/excel/episrv/2022-chp-pud.xlsx"
+  src_name <- basename(src_url)  
+  
+  # Destination paths
+  dest_dir  <- file.path("data", "finproj")
+  dest_file <- file.path(dest_dir, src_name)
+  
+  if (!dir.exists(dest_dir)) {
+    dir.create(dest_dir, recursive = TRUE)
+  }
+  
+  if (!file.exists(dest_file)) {
+    message("Downloading: ", src_url)
+
+    utils::download.file(src_url, dest_file, mode = "wb", quiet = TRUE)
+    message("File saved to: ", dest_file)
+  } else {
+    message("File already exists in destination: ", dest_file)
+  }
+  
+
+  df <- readxl::read_excel(dest_file, sheet = "CHP_all_data", skip = 1)
+  
+
+  df <- df[-c(66:69), ]
+
+  return(df)
+} 
+
+community_health<-community_health_df()
+
+
+community_health <- community_health |>
+  mutate(across(where(is.character), ~ na_if(., "n/a")))
+
+is_borough_level <- community_health$ID %in% 0:5
+#Bourough rows
+ch_boroughs <- subset(community_health, is_borough_level)
+#Community District rows
+ch_neighbor <- subset(community_health, !is_borough_level)
+
+
+inspection_df <- read.csv("C:/Users/mkels/OneDrive/Documents/STA9750-2025-FALL/DOHMH_New_York_City_Restaurant_Inspection_Results_20251103.csv")
+
+```
+
+<br>
+One of the primary data sources used in this project is the DOHMH New York City Restaurant Inspection Results dataset. This dataset is described as containing every sustained or not yet adjudicated violation citation from each full or special program inspection conducted up to three years prior to a restaurant’s most recent inspection. It includes inspections for both restaurants and college cafeterias throughout the city.
+
+<br>
+Each row in the dataset represents a single restaurant violation citation and includes detailed information such as a unique restaurant identifier, establishment name, borough, address, phone number, inspection date, assigned grade, and the corresponding violation description and code. The depth and granularity of this dataset allow for a comprehensive analysis of restaurant cleanliness and compliance with health regulations, making it a strong foundation for exploring patterns in restaurant quality across different neighborhoods.
+
+<br>
+Another key data source used in this project is the NYC Community Health Profile, which captures the health characteristics of 59 community districts across New York City. This dataset provides a comprehensive overview of demographic, socioeconomic, and health-related indicators for each district, allowing for meaningful comparisons across neighborhoods.
+
+<br>
+The Community Health Profile includes a wide range of variables, such as population size, education levels, unemployment rates, rent burden, and other socioeconomic 
+measures, as well as critical health outcomes including obesity rates, diabetes prevalence, and life expectancy. Together, these indicators offer valuable context for understanding the broader health and economic conditions within each community. By integrating this dataset with restaurant inspection data, we are able to examine how neighborhood-level economic factors and health outcomes may relate to restaurant quality across New York City.
+
+
+## Data Cleaning, Preparation, and Exploration
+
+Data visualization tools such as Tableau were initially used to explore the datasets and develop a deeper understanding of their structure and available variables. Tableau’s drag-and-drop functionality made it possible to quickly visualize patterns, assess data quality, and identify which columns were most informative for the analysis. This exploratory step helped guide subsequent data cleaning and preparation.
+
+<br>
+Before analysis could proceed, the datasets required cleaning and integration. To successfully join the DOHMH Restaurant Inspection Results data with the NYC Community Health Profiles, a bridge between the two datasets was created. The Community Health Profiles data contained neighborhood-level identifiers, with values such as Central Harlem, Queens Village, and Coney Island, while the DOHMH inspection data identified restaurant locations by ZIP code.
+
+<br>
+To address this mismatch, a new field was created to group ZIP codes and map them to their corresponding neighborhoods, aligning restaurant records with the neighborhood definitions used in the Community Health Profiles dataset. This step ensured that the datasets could be accurately joined and analyzed together. The code used to perform this transformation is shown below.
+
+
+
+```{r}
+#| echo: true
+#| code-fold: show
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+inspection_df <- inspection_df %>%
+  mutate(
+    neighborhood_group = case_when(
+      ZIPCODE %in% c(10031, 10032, 10033, 10034, 10040) ~ "Washington Heights and Inwood",
+      ZIPCODE %in% c(10026, 10030, 10037, 10039) ~ "Central Harlem",
+      ZIPCODE %in% c(10029, 10035) ~ "East Harlem",
+      ZIPCODE %in% c(10023, 10024) ~ "Upper West Side",
+      ZIPCODE %in% c(10021, 10028, 10044, 10065, 10075, 10128) ~ "Upper East Side",
+      ZIPCODE %in% c(10001, 10011, 10018, 10019, 10020, 10036) ~ "Clinton and Chelsea",
+      ZIPCODE %in% c(10010, 10016, 10017, 10022) ~ "Stuyvesant Town and Turtle Bay",
+      ZIPCODE %in% c(10012, 10013, 10014) ~ "Greenwich Village and Soho",
+      ZIPCODE %in% c(10002, 10003, 10009) ~ "Lower East Side and Chinatown",
+      ZIPCODE %in% c(10004, 10005, 10006, 10007, 10038, 10280) ~ "Financial District",
+      ZIPCODE %in% c(10025, 10027) ~ "Morningside Heights and Hamilton Heights",
+      
+      ZIPCODE %in% c(10301, 10302, 10303, 10304, 10305, 10310) ~ "St. George and Stapleton",
+      ZIPCODE %in% c(10306, 10314) ~ "South Beach and Willowbrook",
+      ZIPCODE %in% c(10307, 10308, 10309, 10312) ~ "Tottenville and Great Kills",
+      
+      ZIPCODE %in% c(10451, 10454, 10455, 10456, 10459) ~ "Mott Haven and Melrose",
+      ZIPCODE %in% c(10474, 10475) ~ "Hunts Point and Longwood",
+      ZIPCODE %in% c(10453, 10457, 10458, 10460) ~ "Morrisania and Crotona",
+      ZIPCODE %in% c(10452, 10456, 10451) ~ "Highbridge and Concourse",
+      ZIPCODE %in% c(10453, 10458, 10467, 10468) ~ "Fordham and University Heights",
+      ZIPCODE %in% c(10457, 10458, 10461) ~ "Belmont and East Tremont",
+      ZIPCODE %in% c(10463, 10471) ~ "Kingsbridge Heights and Bedford",
+      ZIPCODE %in% c(10463, 10471) ~ "Riverdale and Fieldston",
+      ZIPCODE %in% c(10462, 10473) ~ "Parkchester and Soundview",
+      ZIPCODE %in% c(10461, 10465, 10472, 10473) ~ "Throgs Neck and Co-op City",
+      ZIPCODE %in% c(10461, 10462) ~ "Morris Park and Bronxdale",
+      ZIPCODE %in% c(10466, 10467, 10469) ~ "Williamsbridge and Baychester",
+      
+      ZIPCODE %in% c(11211, 11222) ~ "Greenpoint and Williamsburg",
+      ZIPCODE %in% c(11201, 11205) ~ "Fort Greene and Brooklyn Heights",
+      ZIPCODE %in% c(11206, 11216, 11221, 11233, 11238) ~ "Bedford Stuyvesant",
+      ZIPCODE %in% c(11207, 11221, 11237) ~ "Bushwick",
+      ZIPCODE %in% c(11207, 11208) ~ "East New York and Starrett City",
+      ZIPCODE %in% c(11215, 11217, 11231) ~ "Park Slope and Carroll Gardens",
+      ZIPCODE %in% c(11220, 11232) ~ "Sunset Park",
+      ZIPCODE %in% c(11213, 11216, 11225, 11238) ~ "Crown Heights and Prospect Heights",
+      ZIPCODE %in% c(11203, 11212) ~ "South Crown Heights and Lefferts Gardens",
+      ZIPCODE %in% c(11209, 11220) ~ "Bay Ridge and Dyker Heights",
+      ZIPCODE %in% c(11204, 11214, 11228) ~ "Bensonhurst",
+      ZIPCODE %in% c(11204, 11218, 11219, 11230) ~ "Borough Park",
+      ZIPCODE %in% c(11224) ~ "Coney Island",
+      ZIPCODE %in% c(11203, 11210, 11226) ~ "Flatbush and Midwood",
+      ZIPCODE %in% c(11235) ~ "Sheepshead Bay",
+      ZIPCODE %in% c(11212, 11233) ~ "Brownsville",
+      ZIPCODE %in% c(11203, 11226, 11230) ~ "East Flatbush",
+      ZIPCODE %in% c(11236, 11234) ~ "Flatlands and Canarsie",
+      
+      ZIPCODE %in% c(11101, 11102, 11103, 11104, 11105, 11106, 11369, 11370, 11377) ~ "Long Island City and Astoria",
+      ZIPCODE %in% c(11377, 11378, 11379) ~ "Woodside and Sunnyside",
+      ZIPCODE %in% c(11372, 11373, 11374) ~ "Jackson Heights",
+      ZIPCODE %in% c(11373, 11375, 11368) ~ "Elmhurst and Corona",
+      ZIPCODE %in% c(11385, 11378) ~ "Ridgewood and Maspeth",
+      ZIPCODE %in% c(11374, 11375, 11385) ~ "Rego Park and Forest Hills",
+      ZIPCODE %in% c(11354, 11355, 11356, 11357, 11358) ~ "Flushing and Whitestone",
+      ZIPCODE %in% c(11365, 11366, 11367) ~ "Hillcrest and Fresh Meadows",
+      ZIPCODE %in% c(11415, 11416, 11421) ~ "Kew Gardens and Woodhaven",
+      ZIPCODE %in% c(11417, 11419, 11420) ~ "South Ozone Park and Howard Beach",
+      ZIPCODE %in% c(11360, 11361, 11362) ~ "Bayside and Little Neck",
+      ZIPCODE %in% c(11412, 11423, 11432, 11433, 11434) ~ "Jamaica and Hollis",
+      ZIPCODE %in% c(11427, 11428, 11429) ~ "Queens Village",
+      ZIPCODE %in% c(11691, 11692, 11693, 11694, 11695) ~ "Rockaway and Broad Channel",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+```
+
+To support spatial analysis and mapping, approximate geographic coordinates were added for each neighborhood. A reference table was created that assigns a representative latitude and longitude to the center of each community district, based on commonly accepted neighborhood boundaries. These coordinates allowed neighborhood-level health and inspection metrics to be plotted geographically, enabling visual comparisons across the city and supporting map-based visualizations in later stages of the analysis.
+
+```{r}
+#| echo: true
+#| code-fold: show
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+# Neighborhood coordinates (approximate centers)
+neighborhood_coords <- data.frame(
+  Name = c(
+    "Financial District",
+    "Greenwich Village and Soho",
+    "Lower East Side and Chinatown",
+    "Clinton and Chelsea",
+    "Midtown",
+    "Stuyvesant Town and Turtle Bay",
+    "Upper West Side",
+    "Upper East Side",
+    "Morningside Heights and Hamilton Heights",
+    "Central Harlem",
+    "East Harlem",
+    "Washington Heights and Inwood",
+    "Mott Haven and Melrose",
+    "Hunts Point and Longwood",
+    "Morrisania and Crotona",
+    "Highbridge and Concourse",
+    "Fordham and University Heights",
+    "Belmont and East Tremont",
+    "Kingsbridge Heights and Bedford",
+    "Riverdale and Fieldston",
+    "Parkchester and Soundview",
+    "Throgs Neck and Co-op City",
+    "Morris Park and Bronxdale",
+    "Williamsbridge and Baychester",
+    "Greenpoint and Williamsburg",
+    "Fort Greene and Brooklyn Heights",
+    "Bedford Stuyvesant",
+    "Bushwick",
+    "East New York and Starrett City",
+    "Park Slope and Carroll Gardens",
+    "Sunset Park",
+    "Crown Heights and Prospect Heights",
+    "South Crown Heights and Lefferts Gardens",
+    "Bay Ridge and Dyker Heights",
+    "Bensonhurst",
+    "Borough Park",
+    "Coney Island",
+    "Flatbush and Midwood",
+    "Sheepshead Bay",
+    "Brownsville",
+    "East Flatbush",
+    "Flatlands and Canarsie",
+    "Long Island City and Astoria",
+    "Woodside and Sunnyside",
+    "Jackson Heights",
+    "Elmhurst and Corona",
+    "Ridgewood and Maspeth",
+    "Rego Park and Forest Hills",
+    "Flushing and Whitestone",
+    "Hillcrest and Fresh Meadows",
+    "Kew Gardens and Woodhaven",
+    "South Ozone Park and Howard Beach",
+    "Bayside and Little Neck",
+    "Jamaica and Hollis",
+    "Queens Village",
+    "Rockaway and Broad Channel",
+    "St. George and Stapleton",
+    "South Beach and Willowbrook",
+    "Tottenville and Great Kills"
+  ),
+  lon = c(
+    -74.010, -73.996, -73.989, -73.993, -73.981, -73.967, -73.976, -73.959, -73.957, -73.944,
+    -73.940, -73.930, -73.912, -73.887, -73.898, -73.915, -73.906, -73.878, -73.891, -73.905,
+    -73.856, -73.820, -73.843, -73.860, -73.952, -73.974, -73.944, -73.918, -73.980, -73.988,
+    -73.971, -73.949, -73.985, -73.981, -73.965, -73.975, -73.978, -73.961, -73.943, -73.906,
+    -73.912, -73.915, -73.925, -73.919, -73.885, -73.873, -73.908, -73.829, -73.800, -73.820,
+    -73.750, -73.778, -73.740, -73.766, -74.071, -74.096, -74.086, -74.079, -74.081
+  ),
+  lat = c(
+    40.707, 40.733, 40.715, 40.746, 40.754, 40.734, 40.787, 40.773, 40.809, 40.811,
+    40.792, 40.844, 40.814, 40.818, 40.831, 40.841, 40.858, 40.852, 40.879, 40.902,
+    40.840, 40.832, 40.836, 40.857, 40.724, 40.686, 40.683, 40.696, 40.676, 40.645,
+    40.640, 40.647, 40.631, 40.634, 40.618, 40.609, 40.618, 40.620, 40.574, 40.655,
+    40.612, 40.640, 40.617, 40.743, 40.744, 40.750, 40.737, 40.721, 40.746, 40.730,
+    40.729, 40.601, 40.644, 40.718, 40.637, 40.525, 40.632, 40.621, 40.585
+  )
+)
+
+```
+
+
+<br>
+To enable mapping of NYC metrics, the NYC Council District shapefiles utilized in Mini Project 3 were leveraged. These shapefiles provide polygon boundaries for all NYC council districts, which serve as a spatial framework for visualizing neighborhood-level data. The process involved downloading the shapefile ZIP from the official NYC government source, extracting its contents, and reading it into R as a spatial object using the sf package. The coordinate reference system was then transformed to WGS84, ensuring compatibility with other geospatial data such as latitude and longitude points for neighborhoods. By integrating this map framework with the cleaned and joined health and inspection datasets, it became possible to overlay metrics like poverty rates and critical restaurant violations directly onto an accurate map of New York City, providing clear, intuitive visualizations of spatial patterns across neighborhoods.
+
+
+```{r}
+#| echo: true
+#| code-fold: show
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+
+if (!file.exists("data/mp03/nycc_25c.shp")) {
+  
+  # Create directory if needed
+  dir.create("data/mp03", showWarnings = FALSE, recursive = TRUE)
+  
+  # --- Load required packages ---
+  if (!require("sf")) install.packages("sf")
+  library(sf)
+  
+  if (!require("utils")) install.packages("utils")  # for download.file, unzip
+  library(utils)
+  
+  # --- Define constants ---
+  ZIP_URL  <- "https://s-media.nyc.gov/agencies/dcp/assets/files/zip/data-tools/bytes/city-council/nycc_25c.zip"
+  ZIP_PATH <- "data/mp03/nycc_25c.zip"
+  EXTRACT_DIR <- "data/mp03"
+  
+  # --- Step 1: Download if not already there ---
+  if (!file.exists(ZIP_PATH)) {
+    #cat("Downloading NYC Council District boundaries...\n")
+    download.file(ZIP_URL, destfile = ZIP_PATH, mode = "wb")
+    #cat("Download complete:", ZIP_PATH, "\n")
+  } else {
+    #cat("Zip file already exists. Skipping download.\n")
+  }
+  
+  # --- Step 2: Unzip only if needed ---
+  if (length(list.files(EXTRACT_DIR, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)) == 0) {
+    #cat("Extracting zip file...\n")
+    unzip(ZIP_PATH, exdir = EXTRACT_DIR)
+    #cat("Extraction complete.\n")
+  } else {
+    #cat("Files already extracted. Skipping unzip.\n")
+  }
+  
+  # --- Step 3: Read shapefile ---
+  shp_file <- list.files(EXTRACT_DIR, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)[1]
+  
+  if (is.na(shp_file)) {
+    stop("No shapefile found in extracted contents. Please verify the zip file.")
+  }
+  
+  #cat("Reading shapefile:", shp_file, "\n")
+  nycc_boundaries <- st_read(shp_file, quiet = TRUE)
+  #cat("Read complete.\n")
+  
+  # --- Step 4: Transform CRS to WGS84 ---
+  nycc_boundaries <- st_transform(nycc_boundaries, crs = "WGS84")
+  #cat("Coordinate system transformed to WGS84.\n")
+  
+  # --- Step 5: Save the transformed shapefile for future use ---
+  st_write(nycc_boundaries, "data/mp03/nycc_25c_wgs84.shp", delete_dsn = TRUE, quiet = TRUE)
+  #cat("Saved transformed shapefile to data/mp03/nycc_25c_wgs84.shp\n")
+  
+} else {
+  #cat("Shapefile already exists. Skipping download and transformation.\n")
+}
+
+# --- Step 6: Return the data object ---
+nycc_boundaries <- st_read("data/mp03/nycc_25c_wgs84.shp", quiet = TRUE)
+
+
+```
+
+
+
+## Data Analysis & Visualization
+
+To examine geographic and socioeconomic patterns, the analysis incorporated spatial data and neighborhood-level health indicators. NYC Council District boundary shapefiles were downloaded, transformed to a consistent coordinate reference system, and used as a base map for visualization. Community health data, including neighborhood poverty rates, were merged with approximate neighborhood centroid coordinates to enable spatial mapping. A choropleth-style visualization was then produced, displaying poverty rates across neighborhoods and providing visual context for economic disparities throughout the city. Mapping critical restaurant inspection violations on top of neighborhood boundaries further allowed for visual comparison between economic conditions and restaurant cleanliness outcomes.
+
+<br>
+Finally, the relationship between neighborhood poverty and restaurant quality was evaluated through aggregated metrics and correlation plots. Critical violation rates were calculated by neighborhood as the proportion of critical violations relative to total inspections. These rates were then joined with community poverty data and visualized using scatter plots with fitted linear trend lines. This approach made it possible to assess whether higher poverty rates were associated with higher rates of critical health violations. Together, these visualizations supported a data-driven evaluation of the relationship between economic conditions, restaurant quality, and potential community health implications across New York City neighborhoods.
+
+
+```{r, fig.width=16, fig.height=12}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+poverty_df <- community_health_df() %>%
+  select(Name, Poverty) %>%
+  left_join(neighborhood_coords, by = "Name")
+
+# Remove rows with missing coordinates
+poverty_df_clean <- poverty_df %>%
+  filter(!is.na(lon) & !is.na(lat))
+
+# Convert to sf
+poverty_sf <- st_as_sf(poverty_df_clean, coords = c("lon", "lat"), crs = 4326)
+
+ggplot() +
+  geom_sf(data = nycc_boundaries, fill = "grey95", color = "white") +
+  geom_sf(data = poverty_sf, aes(color = Poverty), size = 10) +
+  scale_color_gradient(low = "lightgrey", high = "red", name = "Poverty Rate (%)") +
+  labs(title = "NYC Neighborhood Poverty Rates") +
+  theme_void() +  # Removes axes, ticks, background
+  theme(
+    plot.title = element_text(size = 32, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 22, hjust = 0.5),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16)
+  )
+
+# To make the figure larger when saving
+ggsave("NYC_Poverty_Map.png", width = 16, height = 12, dpi = 300)
+
+```
+
+<br>
+This scatter plot visualizes the relationship between neighborhood-level poverty rates and the rate of critical restaurant violations across New York City. The x-axis represents the poverty rate (%) in each neighborhood, while the y-axis shows the critical violation rate, defined as the proportion of all restaurant violations that are deemed critical. Each dot corresponds to a different neighborhood, with the color gradient indicating the relative poverty level. A linear trend line is included to help assess potential correlations, and specific neighborhoods with notable interest—Fordham and University Heights and Highbridge and Concourse—are labeled for emphasis. Overall, the plot demonstrates that there is little to no correlation between poverty and critical violation rates, suggesting that neighborhoods with the highest poverty levels exhibit roughly similar rates of critical violations compared to more affluent areas. This insight highlights that critical restaurant health issues are not strongly associated with neighborhood poverty in NYC
+
+```{r, fig.width=26, fig.height=12}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+community_health <- community_health_df()  
+
+
+critical_rates <- inspection_df %>%
+  group_by(neighborhood_group) %>%
+  summarize(
+    total_violations = n(),
+    critical_violations = sum(CRITICAL.FLAG == "Critical", na.rm = TRUE),
+    critical_violation_rate = critical_violations / total_violations
+  )
+
+combined_df <- critical_rates %>%
+  left_join(community_health, 
+            by = c("neighborhood_group" = "Name"))
+
+ggplot(combined_df,
+       aes(x = Poverty, y = critical_violation_rate, color = Poverty)) +
+  geom_point(size = 12) +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_gradient(low = "lightgrey", high = "red", name = "Poverty Rate (%)") +
+  geom_text(
+    data = combined_df %>%
+      filter(neighborhood_group %in% c("Fordham and University Heights",
+                                       "Highbridge and Concourse")),
+    aes(label = neighborhood_group),
+    color = "black",
+    size = 6,
+    fontface = "bold",
+    nudge_y = 0.005   # adjust as needed
+  ) +
+  labs(
+    title = "Poverty vs. Critical Restaurant Violation Rate",
+    x = "Poverty Rate (%)",
+    y = "Critical Violations / Total Violations"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 30),
+    axis.title = element_text(size = 34),
+    legend.title = element_text(size = 24),
+    legend.text  = element_text(size = 22)
+  )
+
+```
+
+
+
+## Specific Question
+
+#### *Do neighborhoods with high poverty also have more critical health violations?*
+
+The analysis and visualizations directly address the question of whether neighborhoods with higher poverty rates also experience more critical health violations. By combining DOHMH restaurant inspection data with Community Health Profiles, we were able to calculate the proportion of critical violations for each neighborhood and compare it against poverty rates. Both the scatter plot of critical violation rates versus poverty and the mapped visualizations show that neighborhoods with higher poverty do not consistently exhibit higher rates of critical violations. Instead, critical violations appear relatively uniform across neighborhoods, regardless of socioeconomic status. This suggests that, in New York City, poverty alone is not a strong predictor of critical restaurant health violations, indicating that other factors—such as inspection frequency, restaurant density, or regulatory enforcement—may play a larger role in determining health outcomes at the neighborhood level.
+
+
+<br>
+<br>
+
+## Overarching Question
+
+#### *How does restaurant quality relate to community health across New York City neighborhoods?*
+
+In the broader context of the project, which seeks to understand how restaurant quality relates to community health across New York City neighborhoods, these findings suggest that restaurant inspections alone may not fully capture disparities in community health. While higher poverty is often associated with poorer health outcomes, our analysis shows that neighborhoods with higher poverty do not necessarily experience more critical restaurant violations. This indicates that restaurant safety violations are distributed fairly evenly across the city, and other neighborhood-level factors—such as access to healthcare, prevalence of chronic conditions, or environmental factors—may have a stronger influence on overall community health. Thus, while restaurant quality is an important component of public health, it appears to be just one piece of a much larger and more complex picture of health equity across NYC neighborhoods.
+
+
+
+
+```{r}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Code"
+#| message: false
+#| warning: false
+
+count_words <- function(url){
+    library(rvest)
+    library(stringi)
+    
+    # Note that this includes code inside an inline block, but omits
+    # full-sized code blocks
+    read_html(url) |>
+        html_elements("main p") |>
+        html_text() |>
+        stri_count_words() |>
+        sum()
+}
+
+count_words
+
+```
