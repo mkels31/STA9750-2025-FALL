@@ -4328,16 +4328,12 @@ vertical-align: -.125em;
 <span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>        <span class="fu">sum</span>()</span>
 <span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>count_words</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>total_words <span class="ot">&lt;-</span> <span class="fu">count_words</span>(<span class="st">&quot;https://mkels31.github.io/STA9750-2025-FALL/indiv_project.html&quot;</span>)</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(total_words)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>function (url) 
-{
-    library(rvest)
-    library(stringi)
-    sum(stri_count_words(html_text(html_elements(read_html(url), 
-        &quot;main p&quot;))))
-}</code></pre>
+<pre><code>[1] 1464</code></pre>
 </div>
 </div>
 
