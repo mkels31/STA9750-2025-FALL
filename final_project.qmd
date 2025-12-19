@@ -185,7 +185,7 @@ Finally, these expanded analyses could inform evidence-based policy recommendati
 
 The following section links to each team member’s individual report, which examines a specific research question in greater detail.
 
-**Matthew Kelsall**: [High Poverty Rates & Critical Health Violations](https://mkels31.github.io/STA9750-2025-FALL/final_project.html)
+**Matthew Kelsall**: [High Poverty Rates & Critical Health Violations](https://mkels31.github.io/STA9750-2025-FALL/indiv_project.html)
 
 **Tyler Lara**: [Economic Indicators & Restaurant Inspection Grades](https://tylerml71.github.io/STA9750-2025-FALL/Final-Individual-Report.html)
 
