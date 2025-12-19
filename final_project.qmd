@@ -100,7 +100,7 @@ Taken together, these four analyses approach the overarching question from econo
 
 ## Data Sources
 
-In order to find out the answers to the question, the team used 3 datasets from different sources. The first of these datasets is New York City Community Health Profiles from the [NYC Health Webstie](https://www.nyc.gov/site/doh/data/data-publications/profiles.page). This dataset was made in 2022, and is a collective sum of data from different areas of government and public organizations. These include the American Community Survey (ACS), NYC DOHMH,the NYC Department of Education, the NYC Mayor’s Office for Economic Opportunity, and the NYC Housing and Vacancy Survey (HVS). This Excel file is very comprehensive, with 6 different "pages" and the first 3 pages providing technical and metadata. The last 3 pages are community health profiles, the cause of premature death, and the ranking of cancer data. However, this study will only be using the community health profiles for analyzing due to the last 2 pages (premature death and cancer data) do not have data related to the study. The community health profiles dataset contains 59 community districts making up NYC, and over 50 different measures of public health. These measures fall under demographics, economic or societal conditions, access to health, and health outcomes. This data becomes bloated Though, it has a total of 196 columns because some measures include confidence intervals, notes about the measure, or comparing if the district is higher or lower than to the average in NYC.
+In order to find out the answers to the question, the team used 3 datasets from different sources. The first of these datasets is New York City Community Health Profiles from the [NYC Health Website](https://www.nyc.gov/site/doh/data/data-publications/profiles.page). This dataset was made in 2022, and is a collective sum of data from different areas of government and public organizations. These include the American Community Survey (ACS), NYC DOHMH,the NYC Department of Education, the NYC Mayor’s Office for Economic Opportunity, and the NYC Housing and Vacancy Survey (HVS). This Excel file is very comprehensive, with 6 different "pages" and the first 3 pages providing technical and metadata. The last 3 pages are community health profiles, the cause of premature death, and the ranking of cancer data. However, this study will only be using the community health profiles for analyzing due to the last 2 pages (premature death and cancer data) do not have data related to the study. The community health profiles dataset contains 59 community districts making up NYC, and over 50 different measures of public health. These measures fall under demographics, economic or societal conditions, access to health, and health outcomes. This data becomes bloated Though, it has a total of 196 columns because some measures include confidence intervals, notes about the measure, or comparing if the district is higher or lower than to the average in NYC.
 
 This study will only use columns that relate to the question. Through this, there are only a few that remain important to the study. These include columns like poverty, hypertension, obesity, diabetes, and self-reported health. As seen below, all of these values are in percentages. There are some limitations to this data, especially as it has multiple different sources that likely used different methods to obtain the data. For example, there is a self-reported health column, which is unreliable because people could underestimate or overestimate their health condition. As well, because this data is turned into a sum or average per district, analysis cannot go further in depth. Finally, the data sources all come from different years, from 2014 to 2022. Using this data with other datasets means possibly comparing measures from 2016 to those in 2025, thus leading to inaccurate findings. 
 
@@ -142,6 +142,21 @@ This dataset also has multiple limitations. First, 311 submissions are self‑re
 ## Visualize Findings
 <br><br>
 
+There is a significant correlation between the economic stress (unemployment, poverty, and rent burden). The chart shows the expected percent of grade with economic stress, and the higher the stress becomes, districts tend to get fewer A grades and more B and C grades.
+
+![](viz2.png){width="100%" height="100%" fig-align="center"}
+
+<br>
+There is no meaningful relationship between restaurant inspection grades and the number of 311 food poisoning complaints at the neighborhood level. Restaurant inspection grades do not predict how many food poisoning complaints a neighborhood will receive.
+
+![](viz3.png){width="100%" height="100%" fig-align="center"}
+
+<br>
+There is no significant correlation between % of American Cuisines and Obesity and Diabetes rates in NYC Neighborhoods.  The correlation between Obesity Rate and % of American Cuisines shows slightly positive, while Diabetes rate vs. % American Cuisine shows a slight negative correlation, however these are insignificant.
+
+![](viz4.png){width="100%" height="100%" fig-align="center"}
+
+<br>
 The scatter plot below shows little to no relationship between poverty rates and the rate of critical restaurant health violations. Community districts with both low and high poverty levels exhibit a wide range of critical violation rates, indicating variability that is not explained by poverty alone. The lack of a clear trend indicates that serious food safety violations occur across neighborhoods regardless of economic conditions. 
 
 ![](viz1.png){width="100%" height="100%" fig-align="center"}
@@ -164,5 +179,17 @@ Another important extension would be a focused study on repeated health code vio
 Further analyses could explore how community-level factors interact with restaurant inspection outcomes rather than just economic factors. Potential research questions include examining the relationship between other community health indicators and inspection grades, such as the ratio of farmers markets to bodegas and supermarkets, racial and ethnic diversity, levels of gentrification, and environmental factors such as air pollution. While this project conducted cross-dataset analysis, future work could more explicitly model interactions between these variables to better understand their combined effects.
 
 Finally, these expanded analyses could inform evidence-based policy recommendations for NYC agencies, particularly the Department of Health, to improve food safety, reduce repeat violations, and address broader neighborhood-level health disparities.
+
+
+## Further Discussion
+
+The following section links to each team member’s individual report, which examines a specific research question in greater detail.
+
+**Matthew Kelsall**: [High Poverty Rates & Critical Health Violations](https://mkels31.github.io/STA9750-2025-FALL/final_project.html)
+
+**Tyler Lara**: [Economic Indicators & Restaurant Inspection Grades](https://tylerml71.github.io/STA9750-2025-FALL/Final-Individual-Report.html)
+
+**Haley Vargas**: [Correlation of American Restaurants with Diabetes & Obesity](https://haley-vargas1.github.io/STA9750-2025-FALL/final_individual_report.html)
+
 
 
