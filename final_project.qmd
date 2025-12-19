@@ -191,5 +191,6 @@ The following section links to each team member’s individual report, which exa
 
 **Haley Vargas**: [Correlation of American Restaurants with Diabetes & Obesity](https://haley-vargas1.github.io/STA9750-2025-FALL/final_individual_report.html)
 
+**Caroline Guirand**: [311 Food Poisining Complaints](https://cguirand27.github.io/STA9750-2025-FALL/STA9750_Group_Project-%20Kitchen%20Nightmares%20-%20SQ3%20Analysis.html)
 
 
