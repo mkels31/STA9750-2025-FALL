@@ -142,6 +142,12 @@ This dataset also has multiple limitations. First, 311 submissions are self‑re
 ## Visualize Findings
 <br><br>
 
+The scatter plot below shows little to no relationship between poverty rates and the rate of critical restaurant health violations. Community districts with both low and high poverty levels exhibit a wide range of critical violation rates, indicating variability that is not explained by poverty alone. The lack of a clear trend indicates that serious food safety violations occur across neighborhoods regardless of economic conditions. 
+
+![](viz1.png){width="100%" height="100%" fig-align="center"}
+
+
+
 
 ## Prior Work
 
